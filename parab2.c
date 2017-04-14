@@ -311,15 +311,16 @@ meerdere job queues proberen select te doen, of er dan par is
 
   ab, are updated going down. are tightened by lbub of nodes. a=max(a,lb); b=min(b,ub)
 lbub are updated going up, are the max and min of their children (max of their kids if max node, and vv)
-select: upd ab; if leaf schedule(Playout); if dead try next; if live schedule select; if open schedule expand
-playout: eval; schedule update
-expand: generate open kids & schedule on queues as select (to do upd ab, w/ lbub inf) & then expand
-update: upd lbub; schedule update
+* select: upd ab; if node.leaf schedule(Playout node); if node.dead schedule(select nextbrother node); if node.live schedule(select firstchild node); if node.open schedule expand node
+* playout: node.eval; schedule update node
+* expand: generate open kids & schedule on queues as select (to do upd ab, w/ lbub inf) & then expand
+* update: upd lbub; schedule update parent
 
 expand creates the parallelism. the subsequent selects traverse through the different work queues
 
 						  */
-			  
+
+						  
       r = do_select(child, a, b);
       // if r==NULL continue to next brother
       if (r) {
