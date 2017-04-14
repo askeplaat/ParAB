@@ -59,12 +59,29 @@ node_type *new_leaf(node_type *p, int alpha, int beta) {
   n->child_ub =  INFTY;  // for UPDATE UP
   n->children =  NULL;
   n->n_children = 0;
+  n->current_child = 0;
   n->parent = p;
   n->maxormin = p?opposite(p->maxormin):MAXNODE;
   if (p) {
     n->depth = p->depth - 1;
   }
   return n; // return to where? return a pointer to our address space to a different machine's address space?
+}
+
+node_type *first_child(node_type *node) {
+  if (node) {
+    node->current_child = 0;
+    return node->children[0];
+  }
+  return NULL;
+}
+
+node_type *next_brother(node_type *node) {
+  node_type *p = node->parent;
+  if (++(p->current_child) > TREE_WIDTH) {
+    return NULL;
+  }
+  return p->children[p->current_child];
 }
 
 int opposite(int m) {
@@ -97,12 +114,17 @@ node_type *root;
  ***************************/
 
 int main(int argc, char *argv[]) { 
+  if (argc != 2) {
+    printf("Usage: ./parab n-proc\n");
+    exit(1);
+  }
   int n_proc = atoi(argv[1]);
-  printf("Hello from ParAB with %d machines\n", n_proc);
+  printf("Hello from ParAB with %d machine%s\n", n_proc, n_proc==1?"":"s");
   create_tree(TREE_DEPTH);
   schedule(root, SELECT, -INFTY, INFTY);
   printf("Tree Created\n");
   start_processes(n_proc);
+  print_tree(root, 3);
   return 0;
 }
 
@@ -111,18 +133,18 @@ void create_tree(int d) {
   //  mk_children(root, d-1);
 }
 
-/*
+
 void mk_children(node_type *n, int d) {
   int i;
   n->n_children = TREE_WIDTH;
   for (i = 0; i < TREE_WIDTH; i++) {
-    n->children[i] = new_leaf(n );
+    n->children[i] = new_leaf(n, n->alpha, n->beta);
     if (d>0) {
       mk_children(n->children[i], d-1);
     }
   }
 }
-*/
+
 
 /***************************
  *** OPEN/LIVE           ***
@@ -154,7 +176,7 @@ int top[N_MACHINES];
 
 void start_processes(int n_proc) {
   int i;
-  schedule(root, SELECT);
+  schedule(root, SELECT, -INFTY, INFTY);
   for (i = 0; i<n_proc; i++) {
     top[i] = 0;
     cilk_spawn do_work_queue(i);
@@ -183,7 +205,7 @@ void add_to_queue(job_type *job, int alpha, int beta) {
 
   /* 
    * two types of jobs have bound propagation actions
-   * that move down or up in the tree
+   * that move do-sewn or up in the tree
    * we must use tricks to pass the bound values
    * to the operations, since we can only access a node's values
    * at the home machine, we cannot access other nodes at other
@@ -309,8 +331,8 @@ void do_expand(node_type *node) {
   int ch = 0;
   node->n_children = TREE_WIDTH;
   for (ch = 0; ch < node->n_children; ch++) {
-    node->children[i] = new_leaf(node, node->alpha, node->beta);
-
+    node->children[ch] = new_leaf(node, node->alpha, node->beta);
+    /*
 Hmm. Dit is apart. Nieuwe nodes worden op hun home machine gemaakt.
 In de TT; en ook als job in de job queue.
 dus new_leaf is een RPC?
@@ -319,11 +341,12 @@ En wat is de betekenis van de pointer die new_leaf opleverd als de nieuwe leaf
 	    Is de pointer betekenisloos of misleidend.
 
 	   OK. Laten we voor SHM en threads het maar even zo laten dan.
-
-    if (d>0) {
-      mk_children(n->children[i], d-1);
+    */
+    int d = node->depth;
+    if (d > 0) {
+      mk_children(node->children[ch], d-1);
     }
-    schedule(node->children[i], SELECT, );
+    schedule(node->children[ch], SELECT, node->alpha, node->beta);
   }
 }
 
@@ -394,10 +417,6 @@ void update_bounds_down(node_type *node, int a, int b) {
       if (node->lb < a) {
 	node->lb = a;
 	continue_updating = 1;
-
-klopt dit?
-in downward update moeten toch alleen alpha en beta geupdate worden?
-lb ub updates vinden toch alleen upward plaats?
       }
     }
     if (node->maxormin == MINNODE) {
@@ -425,8 +444,8 @@ void propagate_bounds_downward(node_type *node) {
     while (continue_updating) {
       continue_updating = 0;
       for (ch = 0; ch < node->n_children; ch++) {
-	node_type child = node->children[ch];
-	continue_updating |= update_bounds_down(child, a, b);
+	node_type *child = node->children[ch];
+	update_bounds_down(child, a, b);
 	propagate_bounds_downward(child);
       }
     }
