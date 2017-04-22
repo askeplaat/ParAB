@@ -49,6 +49,8 @@ job_type *new_job(node_type *n, int t) {
  * allocate in memory space of home machine
  */
 
+#define MAXMININIT
+
 node_type *new_leaf(node_type *p, int alpha, int beta) {
   if (p && p->depth <= 0) {
     return NULL;
@@ -56,16 +58,22 @@ node_type *new_leaf(node_type *p, int alpha, int beta) {
   node_type *n = malloc(sizeof(node_type));
   n->board = rand() % N_MACHINES;
   n->maxormin = p?opposite(p->maxormin):MAXNODE;
-  /*
+#ifdef MAXMININIT
   if (n->maxormin == MAXNODE) {
-    n->lb = -INFTY-1;  n->ub =  -INFTY-1;
+    n->lb = -INFTY-1;  n->ub =  -INFTY-1; n->g = -INFTY;   n->child_g = -INFTY;
   } else {
-    n->lb =  INFTY+1;  n->ub =   INFTY+1;
+    n->lb =  INFTY+1;  n->ub =   INFTY+1; n->g =  INFTY;   n->child_g =  INFTY;
   }
-  */ 
+#else
   n->lb = -INFTY-1;
   n->ub =  INFTY+1;
-  
+#endif
+  /*
+ deze komt dus nooit omlaag in max nodes.
+ niet goed. we willen juist dat hij bij alle kids gehad, de hoogste van alle kids laat zien. en niet infty
+gewoon op -infty zetten voor maxnodes?
+  */
+ 
   n->alpha = alpha; // for SELECT DOWN
   n->beta  = beta; // for SELECT DOWN
   n->child_lb = -INFTY;  // for UPDATE UP
@@ -86,7 +94,7 @@ node_type *new_leaf(node_type *p, int alpha, int beta) {
 // maxnode: one child is enough to get a lowerbound
 // minnode: only of all kids are traversed then a lowerbound exists
 int true_lb(node_type *node) {
-  if (1 || node->maxormin == MAXNODE || node->n_open_kids <= 0) {
+  if (node->maxormin == MAXNODE || node->n_open_kids <= 0) {
     return node->lb;
   } else {
     // MINNODE and some open children, so a MIN gives a lowerbound of -INFTY
@@ -96,8 +104,29 @@ int true_lb(node_type *node) {
 
 // minnode or maxnode with all kids traversed gives an upperbound
 int true_ub(node_type *node) {
-  if (1 || node->maxormin == MINNODE || node->n_open_kids <= 0) {
+  if (node->maxormin == MINNODE || node->n_open_kids <= 0) {
     return node->ub;
+  } else {
+    // MAXNODE and some open children, so a MAX gives a upperbound of INFTY
+    return INFTY;
+  }
+} 
+
+// maxnode: one child is enough to get a lowerbound
+// minnode: only of all kids are traversed then a lowerbound exists
+int true_child_lb(node_type *node) {
+  if (node->maxormin == MAXNODE || node->n_open_kids <= 0) {
+    return node->child_lb;
+  } else {
+    // MINNODE and some open children, so a MIN gives a lowerbound of -INFTY
+    return -INFTY;
+  }
+} 
+
+// minnode or maxnode with all kids traversed gives an upperbound
+int true_child_ub(node_type *node) {
+  if (node->maxormin == MINNODE || node->n_open_kids <= 0) {
+    return node->child_ub;
   } else {
     // MAXNODE and some open children, so a MAX gives a upperbound of INFTY
     return INFTY;
@@ -109,8 +138,6 @@ int true_ub(node_type *node) {
 node_type *first_child(node_type *node) {
   if (node && node->children) {
     node->current_child = 0;
-    printf("      FIRST: %d:%d\n", 
-	   node->depth, node->path);
     return node->children[0];
   }
 
@@ -118,6 +145,7 @@ node_type *first_child(node_type *node) {
 }
 
 node_type *next_brother(node_type *node) {
+  printf("*****NEXT\n");
   node_type *p = node->parent;
   if (++(p->current_child) > TREE_WIDTH) {
     return NULL;
@@ -207,7 +235,8 @@ int leaf_node(node_type *node) {
   return node && node->depth <= 0;
 }
 int open_node(node_type *node) {
-  return node && (node->lb <= -INFTY && node->ub >= INFTY); // not expanded, untouched. is live
+  //  return node && (node->lb <= -INFTY && node->ub >= INFTY); // not expanded, untouched. is live
+  return node && node->n_children == 0; // not expanded, untouched. is live
 }
 int closed_node(node_type *node) {
   return node && !open_node(node);  // touched, may be dead or live (AB cutoff or not)
@@ -238,9 +267,10 @@ void do_work_queue(int i) {
   //  printf("Hi from machine %d\n", i);
   //  printf("top[%d]: %d\n", i, top[i]);
 
-  while (not_empty(top[i])) {
+  while (not_empty(top[i]) && live_node(root)) {
     process_job(pull_job(i));
   }
+  printf("Queue is empty or root is solved\n");
 }
 
 int not_empty(int top) {
@@ -276,8 +306,10 @@ void add_to_queue(job_type *job, int alpha, int beta) {
     job->node->beta  = beta;
   }
   if (job->type_of_job == UPDATE) {
-    job->node->child_lb = alpha;
-    job->node->child_ub  = beta;
+    //    job->node->child_lb = alpha;
+    //    job->node->child_ub  = beta;
+    job->node->child_g = alpha;
+    job->node->child_g  = beta;
   }
   
   push_job(home_machine, job);
@@ -286,10 +318,9 @@ void add_to_queue(job_type *job, int alpha, int beta) {
 
 void push_job(int home_machine, job_type *job) {
   queue[home_machine][++(top[home_machine])] = job;
-  printf("     PUSH T:%d -- %d:%d (%d) <%d:%d>(%d:%d) [%d:%d]\n", 
-	 top[home_machine], job->node->depth, job->node->path, job->type_of_job,
-	 job->node->alpha, job->node->beta, job->node->lb, job->node->ub, 
-	 job->node->child_lb, job->node->child_ub);
+  printf("     PUSH  d:%d  : %d (%d) <%d:%d> G:%d chg:%d\n", 
+	 job->node->depth, job->node->path, job->type_of_job,
+	 job->node->alpha, job->node->beta, job->node->g, job->node->child_g);
 }
 
 job_type *pull_job(int home_machine) {
@@ -328,7 +359,7 @@ void schedule(node_type *node, int t, int alpha, int beta) {
 void do_select(node_type *node) {
 
   if (node == root && dead_node(node)) {
-    printf("root is solved\n");
+    printf("root is solved: %d:%d\n", root->alpha, root->beta);
     return;
   }
 
@@ -337,32 +368,36 @@ void do_select(node_type *node) {
    */
   
   if (node->maxormin == MAXNODE) {
-    node->alpha = max(node->alpha, true_lb(node));
+    //    node->alpha = max(node->alpha, true_lb(node));
+    node->alpha = max(node->alpha, node->g);
   }
   if (node->maxormin == MINNODE) {
-    node->beta = min(node->beta, true_ub(node));
+    //    node->beta = min(node->beta, true_ub(node));
+    node->beta = min(node->beta, node->g);
   }
-  printf("SELECT %d:%d O:%d C:%d L:%d D:%d L:%d path:%d nopen:%d  ---   <%d:%d>(%d:%d)\n", 
+  printf("SELECT d:%d %d O:%d Cl:%d Li:%d De:%d Le:%d path:%d nopen:%d  ---   <%d:%d> G:%d\n", 
 	 node->depth, node->board, 
 	 open_node(node), closed_node(node), 
 	 live_node(node), dead_node(node), leaf_node(node), 
 	 node->path, node->n_open_kids, 
-	 node->alpha, node->beta, node->lb, node->ub);
+	 node->alpha, node->beta,  node->g);
   // alphabeta cutoff
   if (node->alpha >= node->beta) {
     printf("******CUTOFF****** %d %d <%d:%d>\n", node->depth, node->path, node->alpha, node->beta);
     return;
   }
 
-  if (leaf_node(node)) {
+  if (leaf_node(node)) { // dpeth == 0; frontier, do playout/eval
     schedule(node, PLAYOUT, node->alpha, node->beta);
   }
 
   if (dead_node(node)) { // cutoff: alpha==beta
+    printf("DEAD: NEXT\n");
     schedule(next_brother(node), SELECT, node->alpha, node->beta);
   }
 
   if (closed_node(node) && live_node(node)) {
+    printf("CLOSED/LIVE: FIRST\n");
     schedule(first_child(node), SELECT, node->alpha, node->beta);
   }
 
@@ -373,9 +408,10 @@ void do_select(node_type *node) {
       printf("ERROR: open node has children\n%d %d\n", 
 	     node->n_children, node->n_open_kids);
       print_tree(root, 2);
-      exit(0);
+      //      exit(0);
+    } else {
+      schedule(node, EXPAND, node->alpha, node->beta);
     }
-    schedule(node, EXPAND, node->alpha, node->beta);
   }
 
   /*
@@ -418,11 +454,21 @@ En wat is de betekenis van de pointer die new_leaf opleverd als de nieuwe leaf
 // must find out if remote pointers is doen by new_leaf or by schedule
 void do_expand(node_type *node) {
 
-  printf("EXPAND %d:%d\n", node->depth, node->path);
+  printf("EXPAND d:%d : %d\n", node->depth, node->path);
 
   int ch = 0;
   node->n_children  = TREE_WIDTH;
   node->n_open_kids = TREE_WIDTH;
+
+  if (node->parent) {
+    node->parent->n_open_kids--;
+    if (node->n_open_kids < 0) {
+      printf("ERROR: n_open_kids below zero\n");
+      print_tree(root, 2);
+      //      exit(0);
+    }
+  }
+
   node->children    = malloc(sizeof(node_type *)*TREE_WIDTH);
   for (ch = 0; ch < node->n_children; ch++) {
     node->children[ch] = new_leaf(node, node->alpha, node->beta);
@@ -441,10 +487,11 @@ void do_expand(node_type *node) {
 
 // just std ab evaluation. no mcts playout
 void do_playout(node_type *node) {
-  printf("PLAYOUT %d:%d\n", node->depth, node->path);
-  node->lb = node->ub = evaluate(node);
+  printf("PLAYOUT d:%d : %d\n", node->depth, node->path);
+  node->g = node->lb = node->ub = evaluate(node);
   // can we do this? access a pointer of a node located at another machine?
-  schedule(node->parent, UPDATE, node->lb, node->ub);
+  //  schedule(node->parent, UPDATE, node->lb, node->ub);
+  schedule(node->parent, UPDATE, node->g, node->g);
 }
 
 int evaluate(node_type *node) {
@@ -458,33 +505,44 @@ int evaluate(node_type *node) {
 
 // backup through the tree
 void do_update(node_type *node) {
-  printf("UPDATE %s %d:%d -- N(%d:%d):C(%d:%d) %d nopen:%d\n", 
+  printf("UPDATE %s %d:%d --  %d nopen:%d G:%d chg: %d\n", 
 	 node->maxormin==MAXNODE?"+":"-", 
 	 node->depth, node->board, 
-	 node->lb, node->ub, 
-	 node->child_lb, node->child_ub, node->path, node->n_open_kids);
+	 node->path, node->n_open_kids, node->g, node->child_g);
 
   if (node && live_node(node)) {
     int continue_updating = 1;
     continue_updating = 0;
-
+    /*
+    hmm. no, only at playout is not enough, inner nodes must also be changed. It really is when all kids of a node have been touched, when a node is fully explored.
+So we need to count the number of open children!
+      It is in expand! whenever a node is expanded, the parent count decrements.
+Huh???>>?????
+      open means having no kids. so the PARENT of the node that is expanded, is decremented. What about leaves?
+*/
+    /*
     node->n_open_kids--;
-    if (node->n_open_kids < 0) {
-      printf("ERROR: n_open_kids below zero\n");
-      exit(0);
-    }
+    only direct kids, not every upward pass.
+      so that means only do it once each pass, only the first time.
+That is doable to implement
+			      only after playout, not when scheduled by update
+    */
     if (node->maxormin == MAXNODE) {
-      if (node->ub < node->child_ub) {
-	node->ub = node->child_ub;
-	continue_updating = 1;
-	/*
-	Bug is dat in een max node als alle kids bezicht ijn dat de max waard evan e ub dan nog steeds +INF is, en dus nooit naar beneden gaat naar de hoogste van de kids. Ik mag de maximalisatie sequence dus eignelijk niet met +INF als initiele waarde beginnen
-	*/
-      }      
-      if (node->lb < node->child_lb) {
-	node->lb = node->child_lb;
+      if (node->child_g > node->g && node->n_open_kids <= 0) {
 	continue_updating = 1;
       }
+      node->g = max(node->g, node->child_g);
+      /*
+      //      if (node->ub < true_child_ub(node)) {
+      if (node->ub > true_child_ub(node)) {
+	node->ub = true_child_ub(node);
+	continue_updating = 1;
+      }      
+      if (node->lb < true_child_lb(node)) {
+	node->lb = true_child_lb(node);
+	continue_updating = 1;
+      }
+      */
     }
     /*
 Dit klopt dus niet.
@@ -492,23 +550,49 @@ Dit klopt dus niet.
   de ab doen? dan is a de waarde van het kind, en is b plus oneindig
     */
     if (node->maxormin == MINNODE) {
-      if (node->ub > node->child_ub) {
-	node->ub = node->child_ub;
-	continue_updating = 1;
-      }      
-      if (node->lb > node->child_lb) {
-	node->lb = node->child_lb;
+      if (node->child_g < node->g && node->n_open_kids <= 0) {
 	continue_updating = 1;
       }
+      node->g = min(node->g, node->child_g);
+      /*
+      if (node->ub > true_child_ub(node)) {
+	node->ub = true_child_ub(node);
+	continue_updating = 1;
+      }      
+      //      if (node->lb > true_child_lb(node)) {
+      if (node->lb < true_child_lb(node)) {
+	node->lb = true_child_lb(node);
+	continue_updating = 1;
+      }
+      */
     }
+  printf("UPDATE %s d:%d : %d --  %d nopen:%d <%d:%d> G:%d chg:%d\n", 
+	 node->maxormin==MAXNODE?"+":"-", 
+	 node->depth, node->board, 
+	 node->path, node->n_open_kids, node->alpha, node->beta, node->g, node->child_g);
+
     if (continue_updating && node->parent) {
       //Dit kan dus niet, dez emoet op de remote machine gescheduled worden.
-      schedule(node->parent, UPDATE, node->lb, node->ub);
+      //      schedule(node->parent, UPDATE, node->lb, node->ub);
+      schedule(node->parent, UPDATE, node->g, node->g);
       //Alles moet in stapjes per node. node voor node, alles gescheduled up de home machine
       //      moet er geen select komen na een update?
       //r = do_update(node->parent);
     } else {
-      schedule(node, SELECT, true_lb(node), true_ub(node));
+      if (node->maxormin==MAXNODE) {
+	if (node->n_open_kids <= 0) {
+	  schedule(node, SELECT, node->g, node->g);   
+	} else {
+	  schedule(node, SELECT, node->g, node->beta);   
+	}
+      } else {
+	if (node->n_open_kids <= 0) {
+	  schedule(node, SELECT, node->g, node->g);   
+	} else {
+	  schedule(node, SELECT, node->alpha, node->g);
+	}
+      }
+      //      schedule(node, SELECT, true_lb(node), true_ub(node));
     }
   }
   return;

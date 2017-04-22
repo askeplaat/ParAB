@@ -7,6 +7,8 @@
 typedef struct node node_type;
 typedef struct node { 
   int board;
+  int g;
+  int child_g;
   int lb; 
   int ub;
   int alpha;
