@@ -27,6 +27,12 @@
  *
  * Aske Plaat 2017
  * 
+ * parab4.c
+ * introduces next_brother pointer in node
+ * needed since we generate one at a time, then process (search), and 
+ * then generate the next brother, which thjen is searched with the new bound.
+ * note that this is a very sequential way of looking at alphabeta
+ * 
  */
 
 /************************
@@ -51,7 +57,7 @@ job_type *new_job(node_type *n, int t) {
 
 #define MAXMININIT
 
-node_type *new_leaf(node_type *p, int alpha, int beta) {
+node_type *new_leaf(node_type *p, node_type *b, int alpha, int beta) {
   if (p && p->depth <= 0) {
     return NULL;
   }
@@ -81,8 +87,8 @@ gewoon op -infty zetten voor maxnodes?
   n->children =  NULL;
   n->n_children = 0;
   n->n_open_kids = 0;
-  n->current_child = 0;
   n->parent = p;
+  n->brother = b;
   n->path = 0;
   if (p) {
     n->depth = p->depth - 1;
@@ -137,21 +143,19 @@ int true_child_ub(node_type *node) {
 
 node_type *first_child(node_type *node) {
   if (node && node->children) {
-    node->current_child = 0;
     return node->children[0];
+  } else {
+    return NULL;
   }
-
-  return NULL;
 }
 
 node_type *next_brother(node_type *node) {
   printf("*****NEXT\n");
-  node_type *p = node->parent;
-  if (++(p->current_child) > TREE_WIDTH) {
+  if (node) {
+    return node->brother;
+  } else {
     return NULL;
   }
-  printf("      NEXT: %d\n", p->current_child);
-  return p->children[p->current_child];
 }
 
 /*
@@ -183,7 +187,7 @@ int min(int a, int b) {
 void print_tree(node_type *node, int d) {
   if (node && d >= 0) {
     printf("%d: %d %s <%d,%d>:(%d,%d)\n",
-	   node->depth, node->board, node->maxormin==MAXNODE?"+":"-", node->alpha, node->beta, node->lb, node->ub);
+	   node->depth, node->board, ((node->maxormin==MAXNODE)?"+":"-"), node->alpha, node->beta, node->lb, node->ub);
     for (int ch = 0; ch < node->n_children; ch++) {
       print_tree(node->children[ch], d-1);
     }
@@ -220,7 +224,7 @@ int main(int argc, char *argv[]) {
 }
 
 void create_tree(int d) {
-  root = new_leaf(NULL, -INFTY, INFTY);
+  root = new_leaf(NULL, NULL, -INFTY, INFTY);
   root->depth = d;
   //  mk_children(root, d-1);
 }
@@ -267,14 +271,20 @@ void do_work_queue(int i) {
   //  printf("Hi from machine %d\n", i);
   //  printf("top[%d]: %d\n", i, top[i]);
 
-  while (not_empty(top[i]) && live_node(root)) {
+  while (not_empty(top[i])) {
     process_job(pull_job(i));
+    if (empty(top[i]) && live_node(root)) {
+      schedule(root, SELECT, root->alpha, root->beta);
+    }
   }
   printf("Queue is empty or root is solved\n");
 }
 
 int not_empty(int top) {
   return (top) > 0;
+}
+int empty(int top) {
+  return !not_empty(top);
 }
 
 // which q? one per processor
@@ -381,28 +391,38 @@ void do_select(node_type *node) {
 	 live_node(node), dead_node(node), leaf_node(node), 
 	 node->path, node->n_open_kids, 
 	 node->alpha, node->beta,  node->g);
+  /*
   // alphabeta cutoff
   if (node->alpha >= node->beta) {
     printf("******CUTOFF****** %d %d <%d:%d>\n", node->depth, node->path, node->alpha, node->beta);
     return;
   }
-
+  */
   if (leaf_node(node)) { // dpeth == 0; frontier, do playout/eval
     schedule(node, PLAYOUT, node->alpha, node->beta);
   }
 
   if (dead_node(node)) { // cutoff: alpha==beta
-    printf("DEAD: NEXT\n");
-    schedule(next_brother(node), SELECT, node->alpha, node->beta);
+    printf("DEAD: NEXT %d %d\n", node->depth, node->path);
+    do_expand(node->parent);
+    //    schedule(next_brother(node), SELECT, node->parent->alpha, node->parent->beta);
+    //    schedule(node->parent, EXPAND, node->parent->alpha, node->parent->beta);
   }
 
   if (closed_node(node) && live_node(node)) {
     printf("CLOSED/LIVE: FIRST\n");
+dit is fout
+dit moet niet de eerste kind zijn die je afloopt
+maar het beste kind
+  is de non-beste niet dood? (a/b)
+wordt de updat wel hoog genoeg doorgegeven?
+  het lijkt of hij niet hoog genoeg doorkomt, en de bounds en dus de dode window to laag blijven steken
     schedule(first_child(node), SELECT, node->alpha, node->beta);
   }
 
   if (open_node(node)) {
     // node is open, that means untouched, no kids, must grow kids.
+    // OPEN is "leaf" in the internal tree, frontier node
     // lb == -INFTY, ub == INFTY, n_children == 0, children[] == NULL
     if (node->n_children != 0 || node->children) {
       printf("ERROR: open node has children\n%d %d\n", 
@@ -457,6 +477,7 @@ void do_expand(node_type *node) {
   printf("EXPAND d:%d : %d\n", node->depth, node->path);
 
   int ch = 0;
+  node_type *older_brother;
   node->n_children  = TREE_WIDTH;
   node->n_open_kids = TREE_WIDTH;
 
@@ -468,14 +489,54 @@ void do_expand(node_type *node) {
       //      exit(0);
     }
   }
+  /* 
+   * add one child
+   * first find thenext available spot
+   */
+  if (node->children == NULL) {
+    node->children    = malloc(sizeof(node_type *)*TREE_WIDTH);
+    for (ch = 0; ch < node->n_children; ch++) {
+      node->children[ch] = NULL;
+    }
+  }
 
-  node->children    = malloc(sizeof(node_type *)*TREE_WIDTH);
-  for (ch = node->n_children-1; ch >= 0; ch++) {
-    node->children[ch] = new_leaf(node, node->alpha, node->beta);
+  // find first empty
+  for (ch = 0; node->children[ch]; ch++) {
+    // this child exists. try next
+    older_brother = node->children[ch];
+  }
+  if (node->children[ch]) {
+    printf("ERROR: trying to create child in existing spot\n");
+  }
+  if (ch < TREE_WIDTH) {
+    node->children[ch] = new_leaf(node, older_brother, node->alpha, node->beta);
     if (node->children[ch]) {
       node->children[ch]->path = 10 * node->path;
       node->children[ch]->path += ch + 1;
+      printf("EXPAND created %d %d\n", node->children[ch]->depth, node->children[ch]->path);
+#undef SCHEDULE_CHILD
+#ifdef SCHEDULE_CHILD
+      // We assume after expand immediate PLAYOUT follows
+      schedule(node->children[ch], SELECT, node->alpha, node->beta);
+#endif
+#ifdef SCHEDULE_ROOT_AND_NODE_WINDOW
+      schedule(root, SELECT, node->alpha, node->beta);
+#endif
+#ifdef SCHEDULE_ROOT
+      schedule(root, SELECT, root->alpha, root->beta);
+#endif
+    } else {
       /*
+      printf("ERROR: new_leaf is NULL. d:%d p:%d\n", node->depth, node->path);
+      print_tree(root, 3);
+      exit(0);
+      */
+    }
+  }  else {
+    printf("EXPAND created nothing\n");
+  }
+
+         /*
       it should not push all children immediately. It should first push only the first cahild, then have that pulled and processed, and then when that subtree has been searhced, and the search results *(bound) is knownw, and can be used, then the second and thirs and lataer child should be pushed to the job queue, wiht the new search bound. 
 This can be achieved with a priority queue, where nodes are bacsically taken off of the queue head based on their lexicogaphical ordering, not when they were pushed in temporal ordering/created. allways do the deepest leftmost first. 
 children should only be created and pushed to the queue when their bound is reayd, in alpha beta they should wait for the older brother to be completed.
@@ -489,9 +550,6 @@ Should First  push only the first child.
 Then that first child. when it is done, should push its brother (with the new bound)
 (Does this have parallelism?)
       */
-      schedule(node->children[ch], SELECT, node->alpha, node->beta);
-    }
-  }
 }
 
 

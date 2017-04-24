@@ -18,8 +18,9 @@ typedef struct node {
   node_type **children;
   int n_children;
   int n_open_kids;
-  int current_child;
+  //  int current_child;
   node_type *parent;
+  node_type *brother;
   int  maxormin;
   int depth;
   int path;
@@ -33,7 +34,7 @@ typedef struct job job_type;
 
 
 job_type *new_job(node_type *n, int t);
-node_type *new_leaf(node_type *p, int alpha, int beta);
+node_type *new_leaf(node_type *p, node_type *b, int alpha, int beta);
 int opposite(int m);
 node_type *first_child(node_type *node);
 node_type *next_brother(node_type *node);
@@ -48,6 +49,7 @@ int live_node(node_type *node);
 int dead_node(node_type *node);
 void start_processes(int n_proc);
 void do_work_queue(int i);
+int empty(int top);
 int not_empty(int top);
 void add_to_queue(job_type *job, int alpha, int beta);
 void process_job(job_type *job);
