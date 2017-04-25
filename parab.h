@@ -20,7 +20,7 @@ typedef struct node {
   int n_open_kids;
   //  int current_child;
   node_type *parent;
-  node_type *brother;
+  node_type *brother; // next_brother
   int  maxormin;
   int depth;
   int path;
@@ -34,7 +34,7 @@ typedef struct job job_type;
 
 
 job_type *new_job(node_type *n, int t);
-node_type *new_leaf(node_type *p, node_type *b, int alpha, int beta);
+node_type *new_leaf(node_type *p, int alpha, int beta);
 int opposite(int m);
 node_type *first_child(node_type *node);
 node_type *next_brother(node_type *node);

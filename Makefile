@@ -1,9 +1,10 @@
 CC=gcc
-#OPT=-g -fcilkplus
-#LIBS=-lcilkrts -lpthread -ldl
-#DEPS=parab.h Makefile
+OPT=-g -fcilkplus
+LIBS=-lcilkrts -lpthread -ldl
+DEPS=parab.h Makefile
+SRCS=parab4.c
 #OBJS=parab4.o
-#TARGET=parab
+TARGET=parab
 
 
 #%.o: %.c $(DEPS)
@@ -13,8 +14,8 @@ CC=gcc
 #	$(CC) $(LIBS)  -o $@ $<
 
 
-parab: parab4.c parab.h Makefile
-	$(CC) -o parab -g -fcilkplus -lcilkrts -lpthread -ldl parab4.c
+$(TARGET): $(SRCS) $(DEPS)
+	$(CC) -o $(TARGET) $(OPT) $(LIBS) $(SRCS)
 
 #time CILK_WORKERS=16 ./parab
 
