@@ -239,12 +239,12 @@ void create_tree(int d) {
 int leaf_node(node_type *node) {
   return node && node->depth <= 0;
 }
-int open_node(node_type *node) {
+int unexpanded_node(node_type *node) {
   //  return node && (node->lb <= -INFTY && node->ub >= INFTY); // not expanded, untouched. is live
   return node && node->n_children == 0; // not expanded, untouched. is live
 }
-int closed_node(node_type *node) {
-  return node && !open_node(node);  // touched, may be dead or live (AB cutoff or not)
+int expanded_node(node_type *node) {
+  return node && !unexpanded_node(node);  // touched, may be dead or live (AB cutoff or not)
 }
 int live_node(node_type *node) {
   //  return node && node->lb < node->ub; // alpha beta???? window is live. may be open or closed
@@ -288,6 +288,19 @@ int empty(int top) {
   return !not_empty(top);
 }
 
+
+void schedule(node_type *node, int t, int alpha, int beta) {
+  if (node) {
+    // copy a,b
+    job_type *job = new_job(node, t);
+
+    // send to remote machine
+    add_to_queue(job, alpha, beta);
+  } else {
+    printf("schedule: NODE to schedule in job queue is NULL. Type: %d\n", t);
+  }
+}
+
 // which q? one per processor
 void add_to_queue(job_type *job, int alpha, int beta) {
   int home_machine = job->node->board;
@@ -297,6 +310,7 @@ void add_to_queue(job_type *job, int alpha, int beta) {
   }
   if (top[home_machine] >= N_JOBS) {
     printf("ERROR: queue full\n");
+    exit(1);
   }
 
   /* 
@@ -348,18 +362,6 @@ void process_job(job_type *job) {
   }
 }
 
-void schedule(node_type *node, int t, int alpha, int beta) {
-  if (node) {
-    // copy a,b
-    job_type *job = new_job(node, t);
-
-    // send to remote machine
-    add_to_queue(job, alpha, beta);
-  } else {
-    printf("schedule: NODE to schedule in job queue is NULL. Type: %d\n", t);
-  }
-}
-
 
 /******************************
  *** SELECT                 ***
@@ -377,6 +379,26 @@ void do_select(node_type *node) {
   /* 
    * alpha beta update, top down 
    */
+  /*
+  int  a = node->maxormin==MAXNODE?max(node->g, node->alpha):node->alpha;
+  int  b = node->maxormin==MINNODE?min(node->g, node->beta):node->beta;
+  if (a >= b) {
+    printf("%d %s closing window [%d:%d]:%d <%d:%d> openkids:%d\n", node->path, 
+	   node->maxormin==MAXNODE?"+":"-",
+	   a, b, node->g, node->alpha, node->beta, node->n_open_kids);
+  }
+  */  
+hmm. moet select de g wissen?
+waar vindt de injectie van g in de bounds-sequence plaats?
+doet update dat niet?
+  g is voor naar boven toe, niet voor naar beneden toe. 
+waarom zit die g hier uberhaupt in de alpab beta bound select?
+Het is voor de overstap van up/down. In het down gaan moet de up-bound worden doorgegeven aan de down-bound.
+En als hij dan gebruikt is moet hij gewist worden.
+g values moeten niet te ver naar boven worden doorgegeven. 
+update gaat te ver door nara boven. hij schiet door.
+na een child expand is er nog geen info genoeg voor een alpha bound aan de root. Dat is er nu wel
+
   
   //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   if (node->maxormin == MAXNODE) {
@@ -384,16 +406,18 @@ void do_select(node_type *node) {
     node->alpha = max(node->alpha, node->g);
     if (node->alpha > -INFTY && node->n_open_kids <= 0) {
       node->beta = node->alpha;
+      printf("%d closing window <%d:%d> openkids:%d\n", node->path, node->alpha, node->beta, node->n_open_kids);
     }
   }
 
-  if (node->maxormin == MINNODE || (node->alpha > -INFTY && node->n_open_kids <= 0)) {
+  if (node->maxormin == MINNODE) {
     //    node->beta = min(node->beta, true_ub(node));
     node->beta = min(node->beta, node->g);
     if (node->beta < INFTY && node->n_open_kids <= 0) {
       node->alpha = node->beta;
-    }
+      printf("%d closing window <%d:%d> openkids:%d\n", node->path, node->alpha, node->beta, node->n_open_kids);    }
   }
+  
   /*
   printf("SELECT %s d:%d p:%d O:%d Cl:%d Li:%d De:%d Le:%d path:%d nopen:%d  ---   <%d:%d> G:%d\n", 
 	 node->maxormin==MAXNODE?"+":"-",
@@ -422,8 +446,8 @@ void do_select(node_type *node) {
     do_expand(node->parent);
     schedule(next_brother(node), SELECT, node->parent->alpha, node->parent->beta);
     //schedule(node->parent, EXPAND, node->parent->alpha, node->parent->beta);
-  } else if (closed_node(node) && live_node(node)) {
-    printf("CLOSED/LIVE: FIRST\n");
+  } else if (expanded_node(node) && live_node(node)) {
+    printf("EXPANDED/LIVE: FIRST\n");
     /*
 dit is fout
 dit moet niet de eerste kind zijn die je afloopt
@@ -433,8 +457,8 @@ wordt de updat wel hoog genoeg doorgegeven?
   het lijkt of hij niet hoog genoeg doorkomt, en de bounds en dus de dode window to laag blijven steken
     */
     schedule(first_child(node), SELECT, node->alpha, node->beta);
-  } else if (open_node(node)) {
-    printf("OPEN node: expand\n");
+  } else if (unexpanded_node(node)) {
+    printf("UNEXPANDED node: expand\n");
     // node is open, that means untouched, no kids, must grow kids.
     // OPEN is "leaf" in the internal tree, frontier node
     // lb == -INFTY, ub == INFTY, n_children == 0, children[] == NULL
@@ -469,7 +493,7 @@ En wat is de betekenis van de pointer die new_leaf opleverd als de nieuwe leaf
 // must find out if remote pointers is doen by new_leaf or by schedule
 void do_expand(node_type *node) {
 
-  printf("%d: %s EXPAND d:%d \n", 
+  printf("%d: %s EXPAND d:%d    ", 
 	 node->path,
 	 node->maxormin==MAXNODE?"+":"-",
 	 node->depth);
@@ -520,7 +544,7 @@ void do_expand(node_type *node) {
     if (node->children[ch]) {
       node->children[ch]->path = 10 * node->path;
       node->children[ch]->path += ch + 1;
-      printf("EXPAND created ch-d:%d ch-p:%d\n", node->children[ch]->depth, node->children[ch]->path);
+      printf("EXPAND created ch:%d -d:%d ch-p:%d\n", ch, node->children[ch]->depth, node->children[ch]->path);
 #undef SCHEDULE_CHILD
 #ifdef SCHEDULE_CHILD
       // We assume after expand immediate PLAYOUT follows
@@ -606,6 +630,8 @@ Huh???>>?????
 That is doable to implement
 			      only after playout, not when scheduled by update
     */
+    
+
     if (node->maxormin == MAXNODE) {
       if (node->child_g > node->g) {
 	continue_updating = 1;
