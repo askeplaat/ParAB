@@ -11,7 +11,6 @@
 #define INFTY  99999
 
 #define SELECT 1
-#define EXPAND 2
 #define PLAYOUT 3
 #define UPDATE 4
 
@@ -84,45 +83,32 @@ job_type *new_job(node_type *n, int t) {
 
 #define MAXMININIT
 
-node_type *new_leaf(node_type *p, int alpha, int beta) {
+node_type *new_leaf(node_type *p) {
   if (p && p->depth <= 0) {
     return NULL;
   }
   node_type *n = malloc(sizeof(node_type));
   n->board = rand() % N_MACHINES;
   n->maxormin = p?opposite(p->maxormin):MAXNODE;
-#ifdef MAXMININIT
-  if (n->maxormin == MAXNODE) {
-    n->lb = -INFTY-1;  n->ub =  -INFTY-1; n->g = -INFTY;   n->child_g = -INFTY; n->a = -INFTY;
-  } else {
-    n->lb =  INFTY+1;  n->ub =   INFTY+1; n->g =  INFTY;   n->child_g =  INFTY; n->b = INFTY;
-  }
-#else
-  n->lb = -INFTY-1;
-  n->ub =  INFTY+1;
-#endif
-  /*
- deze komt dus nooit omlaag in max nodes.
- niet goed. we willen juist dat hij bij alle kids gehad, de hoogste van alle kids laat zien. en niet infty
-gewoon op -infty zetten voor maxnodes?
-  */
- 
-  n->alpha = alpha; // for SELECT DOWN
-  n->beta  = beta; // for SELECT DOWN
-  n->child_lb = -INFTY;  // for UPDATE UP
-  n->child_ub =  INFTY;  // for UPDATE UP
+  n->a = -INFTY;
+  n->b = INFTY;
   n->children =  NULL;
   n->n_children = 0;
-  n->n_open_kids = 0;
   n->parent = p;
-  n->brother = NULL;
   n->path = 0;
   if (p) {
     n->depth = p->depth - 1;
-    //    n->path = p->path*10+p->current_child;
   }
   return n; // return to where? return a pointer to our address space to a different machine's address space?
 }
+
+int max(int a, int b) {
+  return a>b?a:b;
+}
+int min(int a, int b) {
+  return a<b?a:b;
+}
+
 
 int max_of_beta_kids(node_type *node) {
   int b = -INFTY;
@@ -135,12 +121,13 @@ int max_of_beta_kids(node_type *node) {
   // if there are unexpanded kids in a max node, then beta is infty
   return (b == -INFTY)?INFTY:b;
 }
+
 int min_of_alpha_kids(node_type *node) {
   int a = INFTY;
   for (int ch = 0; ch < TREE_WIDTH && node->children[ch]; ch++) {
     node_type *child = node->children[ch];
     if (child) {
-      a = min(b, child->a);
+      a = min(a, child->a);
     }
   }
   // if there are unexpanded kids in a min node, then alpha is -infty
@@ -156,32 +143,17 @@ node_type *first_child(node_type *node) {
   }
 }
 
-node_type *next_brother(node_type *node) {
-  printf("*****NEXT\n");
-  if (node) {
-    return node->brother;
-  } else {
-    return NULL;
-  }
-}
 
 
 int opposite(int m) {
   return (m==MAXNODE) ? MINNODE : MAXNODE;
 }
 
-int max(int a, int b) {
-  return a>b?a:b;
-}
-int min(int a, int b) {
-  return a<b?a:b;
-}
-
 
 void print_tree(node_type *node, int d) {
   if (node && d >= 0) {
-    printf("%d: %d %s <%d,%d>:(%d,%d)\n",
-	   node->depth, node->board, ((node->maxormin==MAXNODE)?"+":"-"), node->alpha, node->beta, node->lb, node->ub);
+    printf("%d: %d %s <%d,%d>\n",
+	   node->depth, node->board, ((node->maxormin==MAXNODE)?"+":"-"), node->a, node->b);
     for (int ch = 0; ch < node->n_children; ch++) {
       print_tree(node->children[ch], d-1);
     }
@@ -210,7 +182,7 @@ int main(int argc, char *argv[]) {
     top[i] = 0;
   }
   create_tree(TREE_DEPTH);
-  schedule(root, SELECT, -INFTY, INFTY);
+  schedule(root, SELECT);
   printf("Tree Created. Root: %d\n", root->board);
   start_processes(n_proc);
   print_tree(root, 3);
@@ -218,7 +190,7 @@ int main(int argc, char *argv[]) {
 }
 
 void create_tree(int d) {
-  root = new_leaf(NULL, -INFTY, INFTY);
+  root = new_leaf(NULL);
   root->depth = d;
   //  mk_children(root, d-1);
 }
@@ -234,7 +206,7 @@ int leaf_node(node_type *node) {
 }
 int live_node(node_type *node) {
   //  return node && node->lb < node->ub; // alpha beta???? window is live. may be open or closed
-  return node && node->alpha < node->beta; // alpha beta???? window is live. may be open or closed
+  return node && node->a < node->b; // alpha beta???? window is live. may be open or closed
 }
 int dead_node(node_type *node) {  
   return node && !live_node(node);    // ab cutoff. is closed
@@ -266,7 +238,7 @@ void do_work_queue(int i) {
   while (not_empty(top[i])) {
     process_job(pull_job(i));
     if (empty(top[i]) && live_node(root)) {
-      schedule(root, SELECT, root->alpha, root->beta);
+      schedule(root, SELECT);
     }
   }
   printf("Queue is empty or root is solved\n");
@@ -280,20 +252,20 @@ int empty(int top) {
 }
 
 
-void schedule(node_type *node, int t, int alpha, int beta) {
+void schedule(node_type *node, int t) {
   if (node) {
     // copy a,b
     job_type *job = new_job(node, t);
 
     // send to remote machine
-    add_to_queue(job, alpha, beta);
+    add_to_queue(job);
   } else {
     printf("schedule: NODE to schedule in job queue is NULL. Type: %d\n", t);
   }
 }
 
 // which q? one per processor
-void add_to_queue(job_type *job, int alpha, int beta) {
+void add_to_queue(job_type *job) {
   int home_machine = job->node->board;
   if (home_machine >= N_MACHINES) {
     printf("ERROR: home_machine %d too big\n", home_machine);
@@ -303,30 +275,6 @@ void add_to_queue(job_type *job, int alpha, int beta) {
     printf("ERROR: queue full\n");
     exit(1);
   }
-
-  /* 
-   * two types of jobs have bound propagation actions
-   * that move do-sewn or up in the tree
-   * we must use tricks to pass the bound values
-   * to the operations, since we can only access a node's values
-   * at the home machine, we cannot access other nodes at other
-   * machines, we only can use local accesses
-   * This is TDS: work follows data
-   */
-  if (job->type_of_job == SELECT) {
-    job->node->alpha = alpha;
-    job->node->beta  = beta;
-  }
-  if (job->type_of_job == EXPAND) {
-    job->node->alpha = alpha;
-    job->node->beta  = beta;
-  }
-  if (job->type_of_job == UPDATE) {
-    //    job->node->child_lb = alpha;
-    //    job->node->child_ub  = beta;
-    job->node->child_g = alpha;
-    job->node->child_g  = beta;
-  }
   
   push_job(home_machine, job);
 }
@@ -334,9 +282,9 @@ void add_to_queue(job_type *job, int alpha, int beta) {
 
 void push_job(int home_machine, job_type *job) {
   queue[home_machine][++(top[home_machine])] = job;
-  printf("    %d: PUSH  [%d] <%d:%d> G:%d chg:%d\n", 
+  printf("    %d: PUSH  [%d] <%d:%d> \n", 
 	 job->node->path, job->type_of_job,
-	 job->node->alpha, job->node->beta, job->node->g, job->node->child_g);
+	 job->node->a, job->node->b);
 }
 
 job_type *pull_job(int home_machine) {
@@ -347,7 +295,7 @@ job_type *pull_job(int home_machine) {
 void process_job(job_type *job) {
   switch (job->type_of_job) {
   case SELECT:  do_select(job->node);  break;
-  case EXPAND:  do_expand(job->node);  break;
+    //  case EXPAND:  do_expand(job->node);  break;
   case PLAYOUT: do_playout(job->node); break;
   case UPDATE:  do_update(job->node);  break;
   }
@@ -364,7 +312,7 @@ void process_job(job_type *job) {
 void do_select(node_type *node) {
 
   if (node == root && dead_node(node)) {
-    printf("root is solved: %d:%d\n", root->alpha, root->beta);
+    printf("root is solved: %d:%d\n", root->a, root->b);
     return;
   }
 
@@ -454,12 +402,12 @@ node_type * first_live_child(node_type *node) {
 
   // did not find a child. do expand
   if (ch < TREE_WIDTH) {
-    node->children[ch] = new_leaf(node, node->alpha, node->beta);
+    node->children[ch] = new_leaf(node);
     if (node->children[ch]) {
       node->children[ch]->path = 10 * node->path;
       node->children[ch]->path += ch + 1;
-      printf("%d o:%d EXPAND created ch:%d -d:%d ch-p:%d\n", 
-	     node->path, node->n_open_kids, 
+      printf("%d  EXPAND created ch:%d -d:%d ch-p:%d\n", 
+	     node->path,  
 	     ch, node->children[ch]->depth, node->children[ch]->path);
       return node->children[ch];
     } 
