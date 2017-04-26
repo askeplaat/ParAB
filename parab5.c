@@ -34,6 +34,32 @@
  * then generate the next brother, which thjen is searched with the new bound.
  * note that this is a very sequential way of looking at alphabeta
  * 
+ * parab5.c going back to separate lb and ub
+ *
+ * SELECT: node.a = parent.a; node.b = parent.b; update a=max(a, lb); b=min(b, ub)
+ * UPDATE: MAX: node.lb=max(node.lb, child.lb); MAX && CLOSED: node.ub=max(all-children.ub); MIN: node.ub=min(node.ub, child.ub); MIN && CLOSED: node.lb=min(all-children.lb); if some values changed, UPDATE node.parent. 
+ * LIVE: a<b
+ * DEAD: not LIVE (alphabeta cutoff)
+ * TOUCHED: some children of node are expanded AND (lb > -INF || ub < INF)
+ * CLOSED: all children of node are expanded AND (lb > -INF || ub < INF)
+ * OPEN: zero children are expanded and have meaningful bounds
+ * node == not LEAF && OPEN: expand one child, mark it OPEN
+ * node == not LEAF && TOUCHED: expand one child, mark it OPEN
+ * node == not LEAF && CLOSED && LIVE: SELECT left-most child 
+ * node == LEAF && LIVE && OPEN: evaluate, making this node CLOSED
+ * node == DEAD: select first LIVE && OPEN/TOUCHED/CLOSED brother of this node
+ * node == CLOSED: UPDATE node.parent
+ * klopt dit? alle gevallen gehad? gaat de select na de update goed, neemt die de
+ * ub/lb en a/b currect over?
+ * 
+ * Doet OPEN/TOUCHED/CLOSED er toe? Only LEAF/INNER en LIVE/DEAD?
+ * SELECT: compute ab/b and select left-most live child. if not exist then EXPAND. if leaf then evalute and UPDATE
+ * UPDATE: update parents lb/ub until no change, then SELECT (root/or node does not matter)
+ * if node==LIVE/OPEN   then SELECT(node) -> push leftmost LIVE/OPEN child
+ * if node==DEAD/CLOSED then UPDATE(node) -> push parent
+ * EVALUATE transforms OPEN to CLOSED
+ * UPDATE transforms CLOSED to OPEN (if no changes to bounds)
+ * is CLOSED: DEAD en OPEN: LIVE?
  */
 
 /************************
@@ -419,27 +445,12 @@ na een child expand is er nog geen info genoeg voor een alpha bound aan de root.
       printf("%d closing window <%d:%d> openkids:%d\n", node->path, node->alpha, node->beta, node->n_open_kids);    }
   }
   
-  /*
-  printf("SELECT %s d:%d p:%d O:%d Cl:%d Li:%d De:%d Le:%d path:%d nopen:%d  ---   <%d:%d> G:%d\n", 
-	 node->maxormin==MAXNODE?"+":"-",
-	 node->depth, node->path,
-	 open_node(node), closed_node(node), 
-	 live_node(node), dead_node(node), leaf_node(node), 
-	 node->path, node->n_open_kids, 
-	 node->alpha, node->beta,  node->g);
-  */
   printf("%d: %s SELECT d:%d nopen:%d  ---   <%d:%d> G:%d    ", 
 	 node->path, node->maxormin==MAXNODE?"+":"-",
 	 node->depth, node->n_open_kids, 
 	 node->alpha, node->beta,  node->g);
-  /*
-  // alphabeta cutoff
-  if (node->alpha >= node->beta) {
-    printf("******CUTOFF****** %d %d <%d:%d>\n", node->depth, node->path, node->alpha, node->beta);
-    return;
-  }
-  */
-  if (leaf_node(node)) { // dpeth == 0; frontier, do playout/eval
+
+  if (leaf_node(node) && live_node(node)) { // dpeth == 0; frontier, do playout/eval
     printf("PLAYOUT\n");
     schedule(node, PLAYOUT, node->alpha, node->beta);
   } else if (dead_node(node) && root != node) { // cutoff: alpha==beta
@@ -502,11 +513,18 @@ void do_expand(node_type *node) {
   int ch = 0;
   node_type *older_brother = NULL;
   node->n_children  = TREE_WIDTH;
-  node->n_open_kids = TREE_WIDTH;
-
+  //  node->n_open_kids = TREE_WIDTH; 
+  /*
+should this be deleted? does this mess up open count? 
+do_expand sets current open to 2 and parent open getd decremented
+that is wrong. so each time you do expand one child you reset the parent
+count to 2.
+so not do this
+  */
   if (node->parent) {
     node->parent->n_open_kids--;
-    if (node->n_open_kids < 0) {
+    printf("%d o:%d PARENT   ", node->parent->path, node->parent->n_open_kids);
+    if (node->parent->n_open_kids < 0) {
       printf("ERROR: n_open_kids below zero\n");
       print_tree(root, 2);
       //      exit(0);
@@ -539,13 +557,16 @@ void do_expand(node_type *node) {
   }
   if (ch < TREE_WIDTH) {
     node->children[ch] = new_leaf(node, node->alpha, node->beta);
+    node->n_open_kids++; // we create one child
     if (ch > 0) {
       node->children[ch-1]->brother = node->children[ch];
     }
     if (node->children[ch]) {
       node->children[ch]->path = 10 * node->path;
       node->children[ch]->path += ch + 1;
-      printf("EXPAND created ch:%d -d:%d ch-p:%d\n", ch, node->children[ch]->depth, node->children[ch]->path);
+      printf("%d o:%d EXPAND created ch:%d -d:%d ch-p:%d\n", 
+	     node->path, node->n_open_kids, 
+	     ch, node->children[ch]->depth, node->children[ch]->path);
 #undef SCHEDULE_CHILD
 #ifdef SCHEDULE_CHILD
       // We assume after expand immediate PLAYOUT follows
@@ -609,29 +630,9 @@ int evaluate(node_type *node) {
 
 // backup through the tree
 void do_update(node_type *node) {
-  /*
-  printf("UPDATE %s %d:%d --  %d nopen:%d G:%d chg: %d\n", 
-	 node->maxormin==MAXNODE?"+":"-", 
-	 node->depth, node->board, 
-	 node->path, node->n_open_kids, node->g, node->child_g);
-  */
+
   if (node && live_node(node)) {
     int continue_updating = 0;
-    /*
-    hmm. no, only at playout is not enough, inner nodes must also be changed. It really is when all kids of a node have been touched, when a node is fully explored.
-So we need to count the number of open children!
-      It is in expand! whenever a node is expanded, the parent count decrements.
-Huh???>>?????
-      open means having no kids. so the PARENT of the node that is expanded, is decremented. What about leaves?
-*/
-    
-    node->n_open_kids--;
-    /*
-    only direct kids, not every upward pass.
-      so that means only do it once each pass, only the first time.
-That is doable to implement
-			      only after playout, not when scheduled by update
-    */
     
     if (node->maxormin == MAXNODE) {
       //      if (node->child_g > node->g) {
@@ -648,11 +649,6 @@ That is doable to implement
       }
       */
     }
-    /*
-Dit klopt dus niet.
-  Na een enkele pass omhoog vanaf de leaves naar de root is de root dood, ub en lb zijn gelijk. het window is dicht. dat klopt niet. de ub van ene max node is na een kind altijd nog plus oneindig
-  de ab doen? dan is a de waarde van het kind, en is b plus oneindig
-    */
     if (node->maxormin == MINNODE) {
       /*
       if (node->child_g < node->g) {
@@ -690,9 +686,6 @@ Dit klopt dus niet.
       //Dit kan dus niet, dez emoet op de remote machine gescheduled worden.
       //      schedule(node->parent, UPDATE, node->lb, node->ub);
       schedule(node->parent, UPDATE, node->g, node->g);
-      //Alles moet in stapjes per node. node voor node, alles gescheduled up de home machine
-      //      moet er geen select komen na een update?
-      //r = do_update(node->parent);
     } else {
       if (node->maxormin==MAXNODE) {
 	if (node->n_open_kids <= 0) {
@@ -707,7 +700,6 @@ Dit klopt dus niet.
 	  schedule(node, SELECT, node->alpha, node->g);
 	}
       }
-      //      schedule(node, SELECT, true_lb(node), true_ub(node));
     }
   }
   return;
