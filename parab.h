@@ -11,6 +11,8 @@ typedef struct node {
   int child_g;
   int lb; 
   int ub;
+  int a;
+  int b;
   int alpha;
   int beta;
   int child_lb;
