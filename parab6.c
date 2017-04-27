@@ -6,8 +6,8 @@
 
 #define N_JOBS 20  // 100 jobs in job queue
 #define N_MACHINES 1
-#define TREE_WIDTH 2
-#define TREE_DEPTH 3
+#define TREE_WIDTH 3
+#define TREE_DEPTH 4
 #define INFTY  99999
 
 #define SELECT 1
@@ -199,7 +199,7 @@ int main(int argc, char *argv[]) {
   schedule(root, SELECT);
   printf("Tree Created. Root: %d\n", root->board);
   start_processes(n_proc);
-  print_tree(root, 3);
+  print_tree(root, TREE_DEPTH);
   return 0;
 }
 
