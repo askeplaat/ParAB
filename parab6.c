@@ -7,7 +7,7 @@
 #define N_JOBS 20  // 100 jobs in job queue
 #define N_MACHINES 1
 #define TREE_WIDTH 2
-#define TREE_DEPTH 2
+#define TREE_DEPTH 3
 #define INFTY  99999
 
 #define SELECT 1
@@ -34,6 +34,10 @@
  * note that this is a very sequential way of looking at alphabeta
  * 
  * parab5.c going back to separate lb and ub
+ *
+ * parab6.c using alpha and beta as upward lb and ub and as downward alpha and beta
+ * the logic is there, and it is much cleaner this way. Code is about 50% shorter* although I am now cheating on node accesses to parent and child,
+ * that in a distributed memory setting need to be fixed, they are remote references
  *
  * SELECT: node.a = parent.a; node.b = parent.b; update a=max(a, lb); b=min(b, ub)
  * UPDATE: MAX: node.lb=max(node.lb, child.lb); MAX && CLOSED: node.ub=max(all-children.ub); MIN: node.ub=min(node.ub, child.ub); MIN && CLOSED: node.lb=min(all-children.lb); if some values changed, UPDATE node.parent. 
@@ -87,19 +91,19 @@ node_type *new_leaf(node_type *p) {
   if (p && p->depth <= 0) {
     return NULL;
   }
-  node_type *n = malloc(sizeof(node_type));
-  n->board = rand() % N_MACHINES;
-  n->maxormin = p?opposite(p->maxormin):MAXNODE;
-  n->a = -INFTY;
-  n->b = INFTY;
-  n->children =  NULL;
-  n->n_children = 0;
-  n->parent = p;
-  n->path = 0;
+  node_type *node = malloc(sizeof(node_type));
+  node->board = rand() % N_MACHINES;
+  node->maxormin = p?opposite(p->maxormin):MAXNODE;
+  node->a = -INFTY;
+  node->b = INFTY;
+  node->children =  NULL;
+  node->n_children = 0;
+  node->parent = p;
+  node->path = 0;
   if (p) {
-    n->depth = p->depth - 1;
+    node->depth = p->depth - 1;
   }
-  return n; // return to where? return a pointer to our address space to a different machine's address space?
+  return node; // return to where? return a pointer to our address space to a different machine's address space?
 }
 
 int max(int a, int b) {
@@ -112,23 +116,33 @@ int min(int a, int b) {
 
 int max_of_beta_kids(node_type *node) {
   int b = -INFTY;
-  for (int ch = 0; ch < TREE_WIDTH && node->children[ch]; ch++) {
+  int ch = 0;
+  for (ch = 0; ch < node->n_children && node->children[ch]; ch++) {
     node_type *child = node->children[ch];
     if (child) {
       b = max(b, child->b);
     }
   }
+  if (ch < node->n_children) {
+    b = -INFTY;
+  }
   // if there are unexpanded kids in a max node, then beta is infty
+  // the upper bound of a max node with open children is infinity, it can
+  // still be any value
   return (b == -INFTY)?INFTY:b;
 }
 
 int min_of_alpha_kids(node_type *node) {
   int a = INFTY;
-  for (int ch = 0; ch < TREE_WIDTH && node->children[ch]; ch++) {
+  int ch = 0;
+  for (ch = 0; ch < node->n_children && node->children[ch]; ch++) {
     node_type *child = node->children[ch];
     if (child) {
       a = min(a, child->a);
-    }
+    } 
+  }
+  if (ch < node->n_children) {
+    a = INFTY;
   }
   // if there are unexpanded kids in a min node, then alpha is -infty
   return (a == INFTY)?-INFTY:a;
@@ -153,7 +167,7 @@ int opposite(int m) {
 void print_tree(node_type *node, int d) {
   if (node && d >= 0) {
     printf("%d: %d %s <%d,%d>\n",
-	   node->depth, node->board, ((node->maxormin==MAXNODE)?"+":"-"), node->a, node->b);
+	   node->depth, node->path, ((node->maxormin==MAXNODE)?"+":"-"), node->a, node->b);
     for (int ch = 0; ch < node->n_children; ch++) {
       print_tree(node->children[ch], d-1);
     }
@@ -173,7 +187,7 @@ int top[N_MACHINES];
 
 int main(int argc, char *argv[]) { 
   if (argc != 2) {
-    printf("Usage: ./parab n-proc\n");
+    printf("Usage: %s n-proc\n", argv[0]);
     exit(1);
   }
   int n_proc = atoi(argv[1]);
@@ -212,8 +226,14 @@ int dead_node(node_type *node) {
   return node && !live_node(node);    // ab cutoff. is closed
 }
 void compute_bounds(node_type *node) {
-  node->a = max(node->a, node->parent->a);
-  node->b = min(node->b, node->parent->b);
+  if (node && node->parent) {
+    int old_a = node->a;
+    int old_b = node->b;
+    node->a = max(node->a, node->parent->a);
+    node->b = min(node->b, node->parent->b);
+    printf("%d COMPUTEBOUNDS <%d:%d> -> <%d:%d>\n", 
+	   node->path, old_a, old_b, node->a, node->b);
+  }
 }
 
 
@@ -237,7 +257,9 @@ void do_work_queue(int i) {
 
   while (not_empty(top[i])) {
     process_job(pull_job(i));
+    //    printf("Top: %d\n", top[i]);
     if (empty(top[i]) && live_node(root)) {
+      printf("Scheduling SELECT in Work Queue\n");
       schedule(root, SELECT);
     }
   }
@@ -288,6 +310,7 @@ void push_job(int home_machine, job_type *job) {
 }
 
 job_type *pull_job(int home_machine) {
+  //  printf("Pull\n");
   job_type *job =  queue[home_machine][top[home_machine]--];
   return job;
 }
@@ -330,13 +353,13 @@ void do_select(node_type *node) {
   if (leaf_node(node) && live_node(node)) { // depth == 0; frontier, do playout/eval
     printf("PLAYOUT\n");
     schedule(node, PLAYOUT);
+  } else if (live_node(node)) {
+    printf("LIVE: FLC\n");
+    schedule(first_live_child(node), SELECT); // first live child finds a live child or does and expand creating a new child
   } else if (dead_node(node) && root != node) { // cutoff: alpha==beta
-    printf("DEAD: UPDATE ERROR: impossible: dead nodes should not be selected\n", 
+    printf("DEAD: bound computation causes cutoff\n", 
 	   node->depth, node->path);
     schedule(node, UPDATE);
-  } else if (live_node(node)) {
-    printf("LIVE: FIRST\n");
-    schedule(first_live_child(node), SELECT); // first live child finds a live child or does and expand creating a new child
   } else {
     printf("ERROR: not leaf, not dead, not live: %d\n", node->path);
     print_tree(root, 2);
@@ -364,7 +387,7 @@ En wat is de betekenis van de pointer die new_leaf opleverd als de nieuwe leaf
 // must find out if remote pointers is doen by new_leaf or by schedule
 node_type * first_live_child(node_type *node) {
 
-  printf("%d: %s EXPAND d:%d    ", 
+  printf("%d: %s FLC d:%d    ", 
 	 node->path,
 	 node->maxormin==MAXNODE?"+":"-",
 	 node->depth);
@@ -385,23 +408,29 @@ node_type * first_live_child(node_type *node) {
   }
 
   // find first empty
-  for (ch = 0; node->children[ch] && dead_node(node->children[ch]); ch++) {
+  for (ch = 0; 
+       ch < node->n_children && 
+	 node->children[ch] && 
+	 dead_node(node->children[ch]); ch++) {
     // this child exists. try next
     older_brother = node->children[ch];
   }
   if (ch >= TREE_WIDTH) {
-    printf("ERROR: all children alrady expanded and dead: %d\n", node->path);
+    printf("ERROR: all children already expanded and dead: %d\n", node->path);
+    print_tree(root, 3);
+    exit(0);
     return NULL;
   }
   node_type *child = node->children[ch];
 
   // found live existing child
   if (child && live_node(child)) {
+    printf("FLC found existing child %d\n", child->path);
     return child;
   }
 
   // did not find a child. do expand
-  if (ch < TREE_WIDTH) {
+  if (ch < TREE_WIDTH) { 
     node->children[ch] = new_leaf(node);
     if (node->children[ch]) {
       node->children[ch]->path = 10 * node->path;
@@ -441,28 +470,29 @@ int evaluate(node_type *node) {
 
 // backup through the tree
 void do_update(node_type *node) {
+  //  printf("%d UPDATE\n", node->path);
 
-  if (node && live_node(node)) {
+  if (node && node->parent) {
     int continue_updating = 0;
     
-    if (node->maxormin == MAXNODE) {
+    if (node->parent->maxormin == MAXNODE) {
       node->parent->a = max(node->parent->a, node->a);
       node->parent->b = max_of_beta_kids(node->parent); //  infty if unexpanded kids
       // if we have expanded a full max node, then a beta has been found, which should be propagated upwards to my min parenr
       continue_updating = (node->parent->b != INFTY);
 
     }
-    if (node->maxormin == MINNODE) {
-      node->parent->a = min_of_alpha_kids(node->parent);
+    if (node->parent->maxormin == MINNODE) {
+        node->parent->a = min_of_alpha_kids(node->parent);
       node->parent->b = min(node->parent->b, node->b);
       continue_updating |= (node->parent->a != -INFTY); // if a full min node has been expanded, then an alpha has been bound, and we should propagate it to the max parent
     }
-    printf("%d %s UPDATE d:%d  --  <%d:%d>\n", 
+    printf("%d %s UPDATE d:%d  --  %d:<%d:%d>\n", 
 	   node->path, node->maxormin==MAXNODE?"+":"-", 
-	   node->depth, node->board, 
-	    node->a, node->b);
+	   node->depth, node->parent->path,
+	    node->parent->a, node->parent->b);
 
-    if (continue_updating && node->parent) {
+    if (continue_updating) {
       schedule(node->parent, UPDATE);
     } 
   }
