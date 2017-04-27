@@ -34,7 +34,7 @@
  * note that this is a very sequential way of looking at alphabeta
  * 
  * parab5.c going back to separate lb and ub
- *
+ * 
  * parab6.c using alpha and beta as upward lb and ub and as downward alpha and beta
  * the logic is there, and it is much cleaner this way. Code is about 50% shorter* although I am now cheating on node accesses to parent and child,
  * that in a distributed memory setting need to be fixed, they are remote references
