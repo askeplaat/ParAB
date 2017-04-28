@@ -40,6 +40,7 @@ int live_node(node_type *node);
 int dead_node(node_type *node);
 void start_processes(int n_proc);
 void do_work_queue(int i);
+int all_empty_and_live_root();
 int empty(int top);
 int not_empty(int top);
 void add_to_queue(job_type *job);

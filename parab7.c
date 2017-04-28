@@ -1,13 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cilk/cilk.h>
+#include <cilk/cilk_api.h>
 #include <assert.h>
+#include <pthread.h>
 #include "parab.h"
 
 #define N_JOBS 20  // 100 jobs in job queue
-#define N_MACHINES 1
-#define TREE_WIDTH 3
-#define TREE_DEPTH 4
+#define N_MACHINES 2
+#define TREE_WIDTH 2
+#define TREE_DEPTH 2
 #define INFTY  99999
 
 #define SELECT 1
@@ -171,7 +173,9 @@ void print_tree(node_type *node, int d) {
 node_type *root;
 job_type *queue[N_MACHINES][N_JOBS];
 int top[N_MACHINES];
-
+int total_jobs;
+//mutex m; // to protect the top-array
+pthread_mutex_t mymutex = PTHREAD_MUTEX_INITIALIZER;
 
 
 /***************************
@@ -189,9 +193,12 @@ int main(int argc, char *argv[]) {
     top[i] = 0;
   }
   create_tree(TREE_DEPTH);
+  total_jobs = 0;
   schedule(root, SELECT);
   printf("Tree Created. Root: %d\n", root->board);
+
   start_processes(n_proc);
+
   print_tree(root, TREE_DEPTH);
   return 0;
 }
@@ -224,8 +231,8 @@ void compute_bounds(node_type *node) {
     int old_b = node->b;
     node->a = max(node->a, node->parent->a);
     node->b = min(node->b, node->parent->b);
-    printf("%d COMPUTEBOUNDS <%d:%d> -> <%d:%d>\n", 
-	   node->path, old_a, old_b, node->a, node->b);
+    //    printf("%d COMPUTEBOUNDS <%d:%d> -> <%d:%d>\n", 
+    //	   node->path, old_a, old_b, node->a, node->b);
   }
 }
 
@@ -234,10 +241,41 @@ void compute_bounds(node_type *node) {
  **** JOB Q                  ***
  ******************************/
 
+
+int not_empty(int top) {
+  pthread_mutex_lock(&mymutex);
+  int t = top > 0;
+  pthread_mutex_unlock(&mymutex);
+  return t;
+}
+int empty(int top) {
+  return !not_empty(top);
+}
+int all_empty_and_live_root() {
+  pthread_mutex_lock(&mymutex);
+  int e =  total_jobs <= 0 && live_node(root);
+  pthread_mutex_unlock(&mymutex);
+  return e;
+}
+
+void schedule(node_type *node, int t) {
+  if (node) {
+    job_type *job = new_job(node, t);
+    // send to remote machine
+    add_to_queue(job);
+  } else {
+    printf("schedule: NODE to schedule in job queue is NULL. Type: %d\n", t);
+  }
+}
+
 void start_processes(int n_proc) {
   int i;
   //  schedule(root, SELECT, -INFTY, INFTY);
   //  for (i = 0; i<n_proc; i++) {
+
+  int numWorkers = __cilkrts_get_nworkers();
+  printf("CILK has %d worker threads\n", numWorkers);
+
   for (i = 0; i<N_MACHINES; i++) {
     cilk_spawn do_work_queue(i);
   }
@@ -245,38 +283,40 @@ void start_processes(int n_proc) {
 }
 
 void do_work_queue(int i) {
-  //  printf("Hi from machine %d\n", i);
-  //  printf("top[%d]: %d\n", i, top[i]);
+  printf("Hi from machine %d  ", i);
+  printf("top[%d]: %d  ", i, top[i]);
 
-  while (not_empty(top[i])) {
-    process_job(pull_job(i));
-    //    printf("Top: %d\n", top[i]);
-    if (empty(top[i]) && live_node(root)) {
-      printf("Scheduling SELECT in Work Queue\n");
+  int workerNum = __cilkrts_get_worker_number();
+  printf("My CILK worker number is %d\n", workerNum);
+
+  // wait for jobs to arrive
+  while (empty(top[i])) {
+    // nothing
+  }
+  printf("M%d starting job queue\n", i);
+  //  while (not_empty(top[i])) {
+  while (live_node(root)) {
+    job_type *job = NULL;
+
+    pthread_mutex_lock(&mymutex);
+    job = pull_job(i);
+    pthread_mutex_unlock(&mymutex);
+
+    if (job) {
+      process_job(job);
+    }
+    //    printf("M%d Top: %d  ", i, top[i]);
+    //    if (empty(top[i]) && live_node(root)) {
+    // if work queue of root machine is empty and root is not solved
+    // then schedule a new select on that root machine for the root
+    // and see if in the mean time a job has arrived in our queue
+    if (all_empty_and_live_root()) {
+      //      printf("M%d Scheduling SELECT on root %d in Work Queue\n", 
+      //	     i, root->board);
       schedule(root, SELECT);
     }
   }
-  printf("Queue is empty or root is solved\n");
-}
-
-int not_empty(int top) {
-  return (top) > 0;
-}
-int empty(int top) {
-  return !not_empty(top);
-}
-
-
-void schedule(node_type *node, int t) {
-  if (node) {
-    // copy a,b
-    job_type *job = new_job(node, t);
-
-    // send to remote machine
-    add_to_queue(job);
-  } else {
-    printf("schedule: NODE to schedule in job queue is NULL. Type: %d\n", t);
-  }
+  printf("M%d Queue is empty or root is solved\n", i);
 }
 
 // which q? one per processor
@@ -287,35 +327,46 @@ void add_to_queue(job_type *job) {
     exit(1);
   }
   if (top[home_machine] >= N_JOBS) {
-    printf("ERROR: queue full\n");
+    printf("M%d Top:%d ERROR: queue full\n", home_machine, top[home_machine]);
     exit(1);
   }
   
+  pthread_mutex_lock(&mymutex);
   push_job(home_machine, job);
+  pthread_mutex_unlock(&mymutex);
 }
 
 
 void push_job(int home_machine, job_type *job) {
+  total_jobs++;
   queue[home_machine][++(top[home_machine])] = job;
-  printf("    %d: PUSH  [%d] <%d:%d> \n", 
-	 job->node->path, job->type_of_job,
-	 job->node->a, job->node->b);
+  //  printf("    M%d P:%d TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
+  //	 job->node->board, job->node->path, 
+  //	 job->node->board, top[job->node->board], job->type_of_job,
+  //	 job->node->a, job->node->b);
 }
 
 job_type *pull_job(int home_machine) {
-  //  printf("Pull\n");
-  job_type *job =  queue[home_machine][top[home_machine]--];
+  //  printf("M%d Pull   ", home_machine);
+  if (top[home_machine] <= 0) {
+    //    printf("M%d PULL ERROR\n", home_machine);
+    return NULL;
+  }
+  total_jobs--;
+  job_type *job = queue[home_machine][top[home_machine]--];
   return job;
 }
 
 void process_job(job_type *job) {
-  switch (job->type_of_job) {
-  case SELECT:  do_select(job->node);  break;
-    //  case EXPAND:  do_expand(job->node);  break;
-  case PLAYOUT: do_playout(job->node); break;
-  case UPDATE:  do_update(job->node);  break;
+  if (job) {
+    switch (job->type_of_job) {
+    case SELECT:  do_select(job->node);  break;
+      //  case EXPAND:  do_expand(job->node);  break;
+    case PLAYOUT: do_playout(job->node); break;
+    case UPDATE:  do_update(job->node);  break;
+    }
   }
-}
+ }
 
 
 /******************************
@@ -338,23 +389,24 @@ void do_select(node_type *node) {
   
   compute_bounds(node);
   
-  printf("%d: %s SELECT d:%d  ---   <%d:%d>   ", 
-	 node->path, node->maxormin==MAXNODE?"+":"-",
-	 node->depth,
-	 node->a, node->b);
+  //  printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
+  //	 node->board, node->path, node->maxormin==MAXNODE?"+":"-",
+  //	 node->depth,
+  //	 node->a, node->b);
 
   if (leaf_node(node) && live_node(node)) { // depth == 0; frontier, do playout/eval
-    printf("PLAYOUT\n");
+    //    printf("M%d PLAYOUT\n", node->board);
     schedule(node, PLAYOUT);
   } else if (live_node(node)) {
-    printf("LIVE: FLC\n");
+    //    printf("M%d LIVE: FLC\n", node->board);
     schedule(first_live_child(node), SELECT); // first live child finds a live child or does and expand creating a new child
   } else if (dead_node(node) && root != node) { // cutoff: alpha==beta
-    printf("DEAD: bound computation causes cutoff\n", 
-	   node->depth, node->path);
+    //    printf("M%d DEAD: bound computation causes cutoff\n", node->board,
+    //	   node->depth, node->path);
     schedule(node, UPDATE);
   } else {
-    printf("ERROR: not leaf, not dead, not live: %d\n", node->path);
+    printf("M%d ERROR: not leaf, not dead, not live: %d\n", 
+	   node->board, node->path);
     print_tree(root, 2);
     exit(0);
   }
@@ -380,10 +432,11 @@ En wat is de betekenis van de pointer die new_leaf opleverd als de nieuwe leaf
 // must find out if remote pointers is doen by new_leaf or by schedule
 node_type * first_live_child(node_type *node) {
 
-  printf("%d: %s FLC d:%d    ", 
-	 node->path,
-	 node->maxormin==MAXNODE?"+":"-",
-	 node->depth);
+  //  printf("M%d P%d: %s FLC d:%d    ", 
+  //	 node->board,
+  //	 node->path,
+  //	 node->maxormin==MAXNODE?"+":"-",
+  //	 node->depth);
 
   int ch = 0;
   node_type *older_brother = NULL;
@@ -409,7 +462,8 @@ node_type * first_live_child(node_type *node) {
     older_brother = node->children[ch];
   }
   if (ch >= TREE_WIDTH) {
-    printf("ERROR: all children already expanded and dead: %d\n", node->path);
+    printf("M%d ERROR: all children already expanded and dead: %d\n", 
+	   node->board, node->path);
     print_tree(root, 3);
     exit(0);
     return NULL;
@@ -418,7 +472,7 @@ node_type * first_live_child(node_type *node) {
 
   // found live existing child
   if (child && live_node(child)) {
-    printf("FLC found existing child %d\n", child->path);
+    //    printf("M%d FLC found existing live child %d\n", node->board, child->path);
     return child;
   }
 
@@ -428,9 +482,9 @@ node_type * first_live_child(node_type *node) {
     if (node->children[ch]) {
       node->children[ch]->path = 10 * node->path;
       node->children[ch]->path += ch + 1;
-      printf("%d  EXPAND created ch:%d -d:%d ch-p:%d\n", 
-	     node->path,  
-	     ch, node->children[ch]->depth, node->children[ch]->path);
+      //      printf("M%d P%d  EXPAND created ch:%d -d:%d ch-p:%d\n", 
+      //	     node->board, node->path,  
+      //	     ch, node->children[ch]->depth, node->children[ch]->path);
       return node->children[ch];
     } 
   }  else {
@@ -446,7 +500,8 @@ node_type * first_live_child(node_type *node) {
 // just std ab evaluation. no mcts playout
 void do_playout(node_type *node) {
   node->a = node->b = evaluate(node);
-  printf("%d: PLAYOUT d:%d    A:%d\n", node->path, node->depth, node->a);
+  //  printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
+  //	 node->board, node->path, node->depth, node->a);
   // can we do this? access a pointer of a node located at another machine?
   //  schedule(node->parent, UPDATE, node->lb, node->ub);
   schedule(node, UPDATE);
@@ -480,10 +535,10 @@ void do_update(node_type *node) {
       node->parent->b = min(node->parent->b, node->b);
       continue_updating |= (node->parent->a != -INFTY); // if a full min node has been expanded, then an alpha has been bound, and we should propagate it to the max parent
     }
-    printf("%d %s UPDATE d:%d  --  %d:<%d:%d>\n", 
-	   node->path, node->maxormin==MAXNODE?"+":"-", 
-	   node->depth, node->parent->path,
-	    node->parent->a, node->parent->b);
+    //    printf("M%d P%d %s UPDATE d:%d  --  %d:<%d:%d>\n", 
+    //	   node->board, node->path, node->maxormin==MAXNODE?"+":"-", 
+    //	   node->depth, node->parent->path,
+    //	    node->parent->a, node->parent->b);
 
     if (continue_updating) {
       schedule(node->parent, UPDATE);
