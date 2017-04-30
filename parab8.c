@@ -8,7 +8,7 @@
 
 #define N_JOBS 20  // 100 jobs in job queue
 #define N_MACHINES 2
-#define TREE_WIDTH 2
+#define TREE_WIDTH 5
 #define TREE_DEPTH 3
 #define INFTY  99999
 
@@ -178,6 +178,7 @@ int top[N_MACHINES];
 int total_jobs;
 pthread_mutex_t mymutex = PTHREAD_MUTEX_INITIALIZER;
 int max_q_length[N_MACHINES];
+int n_par = 1;
 
 /***************************
  *** MAIN                 **
@@ -185,11 +186,15 @@ int max_q_length[N_MACHINES];
 
 int main(int argc, char *argv[]) { 
   if (argc != 2) {
-    printf("Usage: %s n-proc\n", argv[0]);
+    printf("Usage: %s n-par\n", argv[0]);
     exit(1);
   }
-  int n_proc = atoi(argv[1]);
-  printf("Hello from ParAB with %d machine%s\n", n_proc, n_proc==1?"":"s");
+  int n_par = atoi(argv[1]);
+  if (n_par > TREE_WIDTH) {
+    printf("It does not make sense to ask to schedule %d children at once in the job queue when nodes have only %d children to begin with\n", n_par, TREE_WIDTH);
+    exit(0);
+  }
+  printf("Hello from ParAB with %d machine%s and %d children in par in queue\n", N_MACHINES, N_MACHINES==1?"":"s", n_par);
   for (int i = 0; i < N_MACHINES; i++) {
     top[i] = 0;
     max_q_length[i] = 0;
@@ -200,9 +205,9 @@ int main(int argc, char *argv[]) {
   schedule(root, SELECT);
   printf("Tree Created. Root: %d\n", root->board);
 
-  start_processes(n_proc);
+  start_processes(N_MACHINES);
 
-  print_tree(root, TREE_DEPTH);
+  print_tree(root, min(3, TREE_DEPTH));
   print_q_stats();
   return 0;
 }
@@ -343,10 +348,13 @@ void push_job(int home_machine, job_type *job) {
   total_jobs++;
   queue[home_machine][++(top[home_machine])] = job;
   max_q_length[home_machine] = max(max_q_length[home_machine], top[home_machine]);
+#define PRINT_PUSHES
+#ifdef PRINT_PUSHES
   printf("    M%d P:%d TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
 	 job->node->board, job->node->path, 
 	 job->node->board, top[job->node->board], job->type_of_job,
 	 job->node->a, job->node->b);
+#endif
 }
 
 job_type *pull_job(int home_machine) {
@@ -402,7 +410,18 @@ void do_select(node_type *node) {
     schedule(node, PLAYOUT);
   } else if (live_node(node)) {
     //    printf("M%d LIVE: FLC\n", node->board);
+#undef ONE_CHILD
+#ifdef ONE_CHILD
+    // schedule one child. not much parallelism
     schedule(first_live_child(node), SELECT); // first live child finds a live child or does and expand creating a new child
+#else
+    // schedule many children in parallel
+    for (int p = 0; p < n_par; p++) {
+      //does this work? just schdedule many firsts? does first know when others have been scheduled?
+      //  yes it does! first child checks for existing pointers, and then makes a new leaf, so it can be called many times!!!
+      schedule(first_live_child(node), SELECT); // first live child finds a live child or does and expand creating a new child
+    }
+#endif
   } else if (dead_node(node) && root != node) { // cutoff: alpha==beta
     //    printf("M%d DEAD: bound computation causes cutoff\n", node->board,
     //	   node->depth, node->path);
