@@ -104,6 +104,7 @@ node_type *new_leaf(node_type *p) {
   node->children =  NULL;
   node->n_children = 0;
   node->parent = p;
+  node->best_child = NULL;
   node->path = 0;
   if (p) {
     node->depth = p->depth - 1;
@@ -403,7 +404,11 @@ void do_select(node_type *node) {
   } else if (dead_node(node) && root != node) { // cutoff: alpha==beta
     //    printf("M%d DEAD: bound computation causes cutoff\n", node->board,
     //	   node->depth, node->path);
-    schedule(node, UPDATE);
+    // if only this could work across machines with remote references
+    if (node->parent) {
+      node->parent->best_child = node;
+      schedule(node->parent, UPDATE);
+    }
   } else {
     printf("M%d ERROR: not leaf, not dead, not live: %d\n", 
 	   node->board, node->path);
@@ -464,7 +469,7 @@ node_type * first_live_child(node_type *node) {
   if (ch >= node->n_children) {
     printf("M%d ERROR: all children already expanded: %d\n", 
 	   node->board, node->path);
-    print_tree(root, 3);
+    print_tree(root, TREE_DEPTH);
     print_q_stats();
     exit(0);
     return NULL;
@@ -478,7 +483,7 @@ node_type * first_live_child(node_type *node) {
   }
 
   // did not find a child. do expand
-  if (ch < TREE_WIDTH) { 
+  if (ch < node->n_children) { 
     node->children[ch] = new_leaf(node);
     if (node->children[ch]) {
       node->children[ch]->path = 10 * node->path;
@@ -505,7 +510,10 @@ void do_playout(node_type *node) {
   //	 node->board, node->path, node->depth, node->a);
   // can we do this? access a pointer of a node located at another machine?
   //  schedule(node->parent, UPDATE, node->lb, node->ub);
-  schedule(node, UPDATE);
+  if (node->parent) {
+    node->parent->best_child = node;
+    schedule(node->parent, UPDATE);
+  }
 }
 
 int evaluate(node_type *node) {
@@ -521,10 +529,10 @@ int evaluate(node_type *node) {
 void do_update(node_type *node) {
   //  printf("%d UPDATE\n", node->path);
 
-  if (node && node->parent) {
+  if (node && node->best_child) {
     int continue_updating = 0;
     
-    if (node->parent->maxormin == MAXNODE) {
+    if (node->maxormin == MAXNODE) {
       /*
       this is asking for trouble, since parent's home machine is elsewhere, 
 so it can be read by others
@@ -547,13 +555,13 @@ so a true singel logical search thread. a one node one machine policy.
       node->a = max(node->a, node->best_child->a);
       node->b = max_of_beta_kids(node); //  infty if unexpanded kids
       // if we have expanded a full max node, then a beta has been found, which should be propagated upwards to my min parenr
-      continue_updating = (node->parent->b != INFTY);
+      continue_updating = (node->b != INFTY);
 
     }
-    if (node->parent->maxormin == MINNODE) {
-        node->parent->a = min_of_alpha_kids(node->parent);
-      node->parent->b = min(node->parent->b, node->b);
-      continue_updating |= (node->parent->a != -INFTY); // if a full min node has been expanded, then an alpha has been bound, and we should propagate it to the max parent
+    if (node->maxormin == MINNODE) {
+      node->a = min_of_alpha_kids(node);
+      node->b = min(node->b, node->best_child->b);
+      continue_updating = (node->a != -INFTY); // if a full min node has been expanded, then an alpha has been bound, and we should propagate it to the max parent
     }
     //    printf("M%d P%d %s UPDATE d:%d  --  %d:<%d:%d>\n", 
     //	   node->board, node->path, node->maxormin==MAXNODE?"+":"-", 
@@ -561,7 +569,10 @@ so a true singel logical search thread. a one node one machine policy.
     //	    node->parent->a, node->parent->b);
 
     if (continue_updating) {
-      schedule(node->parent, UPDATE);
+      if (node->parent) {
+	node->parent->best_child = node;
+	schedule(node->parent, UPDATE);
+      }
     } 
   }
 }

@@ -12,6 +12,7 @@ typedef struct node {
   node_type **children;
   int n_children;
   node_type *parent;
+  node_type *best_child;
   int  maxormin;
   int depth;
   int path;
@@ -24,6 +25,7 @@ struct job {
 typedef struct job job_type;
 
 
+void print_q_stats();
 job_type *new_job(node_type *n, int t);
 node_type *new_leaf(node_type *p);
 int opposite(int m);
