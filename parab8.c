@@ -9,7 +9,7 @@
 #define N_JOBS 20  // 100 jobs in job queue
 #define N_MACHINES 2
 #define TREE_WIDTH 2
-#define TREE_DEPTH 2
+#define TREE_DEPTH 3
 #define INFTY  99999
 
 #define SELECT 1
@@ -313,9 +313,11 @@ void do_work_queue(int i) {
     if (job) {
       process_job(job);
     }
+    /*
     if (all_empty_and_live_root()) {
       schedule(root, SELECT);
     }
+    */
   }
   printf("M%d Queue is empty or root is solved\n", i);
 }
@@ -573,7 +575,10 @@ so a true singel logical search thread. a one node one machine policy.
 	node->parent->best_child = node;
 	schedule(node->parent, UPDATE);
       }
-    } 
+    } else {
+      // keep going, no longer autmatic select of root. select of this node
+      schedule(node, SELECT);
+    }
   }
 }
 
