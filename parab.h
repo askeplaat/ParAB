@@ -5,10 +5,15 @@
 */
 
 
+
+/*
+ * defines
+ */
+
 #define N_JOBS 20  // 100 jobs in job queue
 #define N_MACHINES 2
-#define TREE_WIDTH 2
-#define TREE_DEPTH 3
+#define TREE_WIDTH 3
+#define TREE_DEPTH 4
 #define INFTY  99999
 
 #define SELECT 1
@@ -17,6 +22,8 @@
 
 #define MAXNODE 1
 #define MINNODE 2
+
+
 
 /*
  * structs
@@ -41,6 +48,8 @@ struct job {
   int type_of_job;
 };
 typedef struct job job_type;
+
+
 
 /*
  * variables

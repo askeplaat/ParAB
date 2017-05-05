@@ -93,9 +93,9 @@ int min_of_alpha_kids(node_type *node) {
 void set_best_child(node_type *node) {
   if (node && node->parent) {
     if (node->parent->best_child) {
-      printf("SET BEST CHILD from %d ", node->parent->best_child->path);    
+      //      printf("SET BEST CHILD from %d ", node->parent->best_child->path);    
     } else {
-      printf("SET BEST CHILD from -- ");    
+      //      printf("SET BEST CHILD from -- ");    
     }
     if (node->parent->maxormin == MAXNODE && 
 	(!node->parent->best_child || 
@@ -112,9 +112,9 @@ void set_best_child(node_type *node) {
       node->parent->best_child = node;	  
     }
     if (node->parent->best_child) {
-      printf("to %d\n", node->parent->best_child->path);
+      //      printf("to %d\n", node->parent->best_child->path);
     } else {
-      printf("to --\n");
+      //      printf("to --\n");
     }
   }
 }
@@ -242,8 +242,8 @@ void schedule(node_type *node, int t) {
     // send to remote machine
     add_to_queue(job);
   } else {
-    printf("schedule: NODE to schedule in job queue is NULL. Type: %d\n", 
-	   t);
+    //    printf("schedule: NODE to schedule in job queue is NULL. Type: %d\n", 
+    //	   t);
   }
 }
 
@@ -315,7 +315,7 @@ void push_job(int home_machine, job_type *job) {
   total_jobs++;
   queue[home_machine][++(top[home_machine])] = job;
   max_q_length[home_machine] = max(max_q_length[home_machine], top[home_machine]);
-#define PRINT_PUSHES
+#undef PRINT_PUSHES
 #ifdef PRINT_PUSHES
   printf("    M%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
 	 job->node->board, job->node->path, 
@@ -338,13 +338,13 @@ job_type *pull_job(int home_machine) {
 
 void process_job(job_type *job) {
   if (job) {
-    //    pthread_mutex_lock(&treemutex);
+    pthread_mutex_lock(&treemutex);
     switch (job->type_of_job) {
     case SELECT:  do_select(job->node);  break;
       //  case EXPAND:  do_expand(job->node);  break;
     case PLAYOUT: do_playout(job->node); break;
     case UPDATE:  do_update(job->node);  break;
     }
-    //    pthread_mutex_unlock(&treemutex);
+    pthread_mutex_unlock(&treemutex);
   }
  }

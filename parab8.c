@@ -61,10 +61,10 @@
  ** VARIABLES             **
  **************************/
 
-node_type *root;
+node_type *root = NULL;
 job_type *queue[N_MACHINES][N_JOBS];
 int top[N_MACHINES];
-int total_jobs;
+int total_jobs = 0;
 pthread_mutex_t mymutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t treemutex = PTHREAD_MUTEX_INITIALIZER;
 int max_q_length[N_MACHINES];
@@ -108,7 +108,7 @@ void do_select(node_type *node) {
     } else {
       // schedule many children in parallel
       for (int p = 0; p < n_par; p++) {
-        printf("M:%d P:%d par child:%d/%d\n", node->board, node->path, p, n_par);
+	//        printf("M:%d P:%d par child:%d/%d\n", node->board, node->path, p, n_par);
 	node_type *child = first_live_child(node, p+1); 
 	if (child) {
 	  schedule(child, SELECT); // first live child finds a live child or does and expand creating a new child
@@ -266,12 +266,14 @@ void do_update(node_type *node) {
       node->b = min(node->b, node->best_child->b);
       continue_updating = (node->a != -INFTY); // if a full min node has been expanded, then an alpha has been bound, and we should propagate it to the max parent
     }
+    /*
     if (node && node->parent) {
       printf("M%d P%d %s UPDATE d:%d  --  %d:<%d:%d> n_ch:%d\n", 
 	     node->board, node->path, node->maxormin==MAXNODE?"+":"-", 
 	     node->depth, node->parent->path,
 	     node->a, node->b, node->n_children);
     }
+    */
     if (continue_updating) {
       if (node->parent) {
 	//	if (node->parent->best_child) {
