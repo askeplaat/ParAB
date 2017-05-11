@@ -10,10 +10,13 @@
  * defines
  */
 
-#define N_JOBS 20  // 100 jobs in job queue
-#define N_MACHINES 2
-#define TREE_WIDTH 3
-#define TREE_DEPTH 4
+#define N_MACHINES 5
+#define TREE_WIDTH 6
+#define TREE_DEPTH 7
+
+
+#define N_JOBS 100  // 100 jobs in job queue
+
 #define INFTY  99999
 
 #define SELECT 1
@@ -59,7 +62,7 @@ extern node_type *root;
 extern job_type *queue[N_MACHINES][N_JOBS];
 extern int top[N_MACHINES];
 extern int total_jobs;
-extern pthread_mutex_t mymutex;
+extern pthread_mutex_t jobmutex;
 extern pthread_mutex_t treemutex;
 extern int max_q_length[N_MACHINES];
 extern int n_par;
@@ -83,6 +86,8 @@ int leaf_node(node_type *node);
 int seq(int machine);
 int min(int a, int b);
 int max(int a, int b);
+void sort_queue(job_type *q[], int t);
+void print_queue(job_type *q[], int t);
 node_type *next_brother(node_type *node);
 int main(int argc, char *argv[]);
 void print_tree(node_type *node, int d);

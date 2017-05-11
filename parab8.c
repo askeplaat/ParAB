@@ -65,7 +65,7 @@ node_type *root = NULL;
 job_type *queue[N_MACHINES][N_JOBS];
 int top[N_MACHINES];
 int total_jobs = 0;
-pthread_mutex_t mymutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t jobmutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t treemutex = PTHREAD_MUTEX_INITIALIZER;
 int max_q_length[N_MACHINES];
 int n_par = 1;
@@ -98,32 +98,37 @@ void do_select(node_type *node) {
   //	 node->a, node->b);
 
   if (leaf_node(node) && live_node(node)) { // depth == 0; frontier, do playout/eval
-    //    printf("M%d PLAYOUT\n", node->board);
+    //    printf("M:%d PLAYOUT\n", node->board);
     schedule(node, PLAYOUT);
   } else if (live_node(node)) {
-    //    printf("M%d LIVE: FLC\n", node->board);
+    //      printf("M:%d LIVE: FLC\n", node->board);
     if (seq(node->board)) {
       // schedule one child. not much parallelism
       schedule(first_live_child(node, 1), SELECT); // first live child finds a live child or does and expand creating a new child
     } else {
       // schedule many children in parallel
       for (int p = 0; p < n_par; p++) {
-	//        printf("M:%d P:%d par child:%d/%d\n", node->board, node->path, p, n_par);
+	//        printf("M:%d P:%d par child:%d/%d\n", 
+	//	       node->board, node->path, p, n_par);
 	node_type *child = first_live_child(node, p+1); 
 	if (child) {
+	  //	  printf("child: P:%d\n", child->path);
 	  schedule(child, SELECT); // first live child finds a live child or does and expand creating a new child
+	} else { 
+	  //	  printf("child is null\n");
 	}
       }
     }
   } else if (dead_node(node) && root != node) { // cutoff: alpha==beta
-    //    printf("M%d DEAD: bound computation causes cutoff\n", node->board,
+    //    printf("M%d DEAD: bound computation causes cutoff d:%d p:%d\n", node->board,
     //	   node->depth, node->path);
-    // if only this could work across machines with remote references
+#define UPDATE_AFTER_CUTOFF
+#ifdef UPDATE_AFTER_CUTOFF
     if (node->parent) {
       set_best_child(node);
-      //      node->parent->best_child = node;
       schedule(node->parent, UPDATE);
     }
+#endif
   } else {
     printf("M%d ERROR: not leaf, not dead, not live: %d\n", 
 	   node->board, node->path);
@@ -186,13 +191,13 @@ node_type * first_live_child(node_type *node, int p) {
   }
 
   if (ch >= node->n_children) { 
-    /*
-      printf("M%d ERROR: all children already expanded: %d\n", 
-      node->board, node->path);
-      print_tree(root, TREE_DEPTH);
-      print_q_stats();
-      exit(0);
-    */
+    
+    //      printf("M%d ERROR: all children already expanded: %d\n", 
+    //	     node->board, node->path);
+    //      print_tree(root, TREE_DEPTH);
+    //      print_q_stats();
+    //      exit(0);
+    
     return NULL;
   }
   node_type *child = node->children[ch];
@@ -227,8 +232,8 @@ node_type * first_live_child(node_type *node, int p) {
 // just std ab evaluation. no mcts playout
 void do_playout(node_type *node) {
   node->a = node->b = evaluate(node);
-  printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
-	 node->board, node->path, node->depth, node->a);
+  //  printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
+  //	 node->board, node->path, node->depth, node->a);
   // can we do this? access a pointer of a node located at another machine?
   //  schedule(node->parent, UPDATE, node->lb, node->ub);
   if (node->parent) {
@@ -266,24 +271,32 @@ void do_update(node_type *node) {
       node->b = min(node->b, node->best_child->b);
       continue_updating = (node->a != -INFTY); // if a full min node has been expanded, then an alpha has been bound, and we should propagate it to the max parent
     }
-    /*
+
+#undef PRINT_UPDATE
+#ifdef PRINT_UPDATE
     if (node && node->parent) {
       printf("M%d P%d %s UPDATE d:%d  --  %d:<%d:%d> n_ch:%d\n", 
 	     node->board, node->path, node->maxormin==MAXNODE?"+":"-", 
 	     node->depth, node->parent->path,
 	     node->a, node->b, node->n_children);
     }
-    */
+#endif
+
+    if (node == root) {
+      printf("Updating root <%d:%d>\n", node->a, node->b);
+    }
+    
     if (continue_updating) {
       if (node->parent) {
 	//	if (node->parent->best_child) {
 	set_best_child(node);
-	  //	} 
+	//	} 
+	//	printf("%d schedule update %d\n", node->path, node->parent->path);
 	schedule(node->parent, UPDATE);
       }
     } else {
       // keep going, no longer autmatic select of root. select of this node
-      schedule(node, SELECT);
+      //      schedule(node, SELECT);
     }
   }
 }
