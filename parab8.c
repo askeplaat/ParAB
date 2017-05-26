@@ -70,6 +70,9 @@ pthread_mutex_t treemutex = PTHREAD_MUTEX_INITIALIZER;
 int max_q_length[N_MACHINES];
 int n_par = 1;
 
+int global_selects = 0;
+int global_leaf_eval = 0;
+int global_downward_aborts = 0;
 
 
 /******************************
@@ -80,60 +83,77 @@ int n_par = 1;
 // but only one node at a time, since each node has its own home machine
 // precondition: my bounds 
 void do_select(node_type *node) {
+  global_selects++;
+  if (node && live_node(node)) {
+    if (node == root && dead_node(node)) {
+      printf("root is solved: %d:%d\n", root->a, root->b);
+      return;
+    }
 
-  if (node == root && dead_node(node)) {
-    printf("root is solved: %d:%d\n", root->a, root->b);
-    return;
-  }
-
-  /* 
-   * alpha beta update, top down 
-   */
+    /* 
+     * alpha beta update, top down 
+     */
+    
+    compute_bounds(node);
   
-  compute_bounds(node);
-  
-  //  printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
-  //	 node->board, node->path, node->maxormin==MAXNODE?"+":"-",
-  //	 node->depth,
-  //	 node->a, node->b);
+    //  printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
+    //	 node->board, node->path, node->maxormin==MAXNODE?"+":"-",
+    //	 node->depth,
+    //	 node->a, node->b);
+    
+    if (leaf_node(node) && live_node(node)) { // depth == 0; frontier, do playout/eval
+      //    printf("M:%d PLAYOUT\n", node->board);
+      schedule(node, PLAYOUT);
+    } else if (live_node(node)) {
+      //      printf("M:%d LIVE: FLC\n", node->board);
+      node_type *flc = first_live_child(node, 1);
+      if (!flc) {
+      //      printf("ERROR: FLC is null. node: %d\n", node->path);
+      //      exit(1);
+      } else if (seq(flc)) { //doe het van het kind (seq(first_child))
+	/*
+	  In this way seq creates shallow-first parallelism. 
+Should not we try to create deep-first parallelism?
+  Becasue parallelism that is shallow, uses loose-bounds that are used 
+  for large xubtrees.very inefficient. Loose bounds should be use for small trees, little damage. large trees should be searched with tight bounds.
+      */
 
-  if (leaf_node(node) && live_node(node)) { // depth == 0; frontier, do playout/eval
-    //    printf("M:%d PLAYOUT\n", node->board);
-    schedule(node, PLAYOUT);
-  } else if (live_node(node)) {
-    //      printf("M:%d LIVE: FLC\n", node->board);
-    if (seq(node->board)) {
-      // schedule one child. not much parallelism
-      schedule(first_live_child(node, 1), SELECT); // first live child finds a live child or does and expand creating a new child
-    } else {
-      // schedule many children in parallel
-      for (int p = 0; p < n_par; p++) {
-	//        printf("M:%d P:%d par child:%d/%d\n", 
-	//	       node->board, node->path, p, n_par);
-	node_type *child = first_live_child(node, p+1); 
-	if (child) {
-	  //	  printf("child: P:%d\n", child->path);
-	  schedule(child, SELECT); // first live child finds a live child or does and expand creating a new child
-	} else { 
-	  //	  printf("child is null\n");
+	// schedule one child. not much parallelism
+	schedule(flc, SELECT); // first live child finds a live child or does and expand creating a new child
+      } else {
+	// schedule many children in parallel
+	for (int p = 0; p < n_par; p++) {
+	  //        printf("M:%d P:%d par child:%d/%d\n", 
+	  //	       node->board, node->path, p, n_par);
+	  node_type *child = first_live_child(node, p+1); 
+	  if (child && !seq(child)) {
+	    //	  printf("child: P:%d\n", child->path);
+	    schedule(child, SELECT); // first live child finds a live child or does and expand creating a new child
+	  } else { 
+	    if (!child) {
+	      //	    printf("child is null\n");
+	    } else {
+	      //	    printf("seq prevents parallelism. M:%d, top:%d\n", child->board, top[child->board]);
+	    }
+	  }
 	}
       }
-    }
-  } else if (dead_node(node) && root != node) { // cutoff: alpha==beta
-    //    printf("M%d DEAD: bound computation causes cutoff d:%d p:%d\n", node->board,
-    //	   node->depth, node->path);
+    } else if (dead_node(node) && root != node) { // cutoff: alpha==beta
+      //    printf("M%d DEAD: bound computation causes cutoff d:%d p:%d\n", node->board,
+      //	   node->depth, node->path);
 #define UPDATE_AFTER_CUTOFF
 #ifdef UPDATE_AFTER_CUTOFF
-    if (node->parent) {
-      set_best_child(node);
-      schedule(node->parent, UPDATE);
-    }
+      if (node->parent) {
+	set_best_child(node);
+	schedule(node->parent, UPDATE);
+      }
 #endif
-  } else {
-    printf("M%d ERROR: not leaf, not dead, not live: %d\n", 
-	   node->board, node->path);
-    print_tree(root, 2);
-    exit(0);
+    } else {
+      printf("M%d ERROR: not leaf, not dead, not live: %d\n", 
+	     node->board, node->path);
+      print_tree(root, 2);
+      exit(0);
+    }
   }
 }
 
@@ -245,6 +265,7 @@ void do_playout(node_type *node) {
 
 int evaluate(node_type *node) {
   //  return node->path;
+  global_leaf_eval++;
   return rand() % (INFTY/8) - (INFTY/16);
 }
 
@@ -271,7 +292,13 @@ void do_update(node_type *node) {
       node->b = min(node->b, node->best_child->b);
       continue_updating = (node->a != -INFTY); // if a full min node has been expanded, then an alpha has been bound, and we should propagate it to the max parent
     }
+    /*
+    check_abort(node); or better: propagate updates downward, not necessarily aborting, but must at least update bounds.
+    Should not we here check if any of the children die, so that they can be removed from the job queues and the search of them is stopped?
 
+				      par search is more than ensemble. in ensemble search all searches are independent. in par they are dependent, the influence each other, one result may stop 
+				      bound propagtion, is that asynch to job queue, just scan all jobs for subchildren, and update bound, or can we send an update/select job to the queues?
+    */
 #undef PRINT_UPDATE
 #ifdef PRINT_UPDATE
     if (node && node->parent) {
@@ -282,11 +309,14 @@ void do_update(node_type *node) {
     }
 #endif
 
-    if (node == root) {
-      printf("Updating root <%d:%d>\n", node->a, node->b);
-    }
+    //    if (node == root) {
+    //      printf("Updating root <%d:%d>\n", node->a, node->b);
+    //    }
     
     if (continue_updating) {
+      // schedule downward update to parallel searches
+      downward_update_children(node);
+      // schedule upward update
       if (node->parent) {
 	//	if (node->parent->best_child) {
 	set_best_child(node);
@@ -297,6 +327,43 @@ void do_update(node_type *node) {
     } else {
       // keep going, no longer autmatic select of root. select of this node
       //      schedule(node, SELECT);
+    }
+  }
+}
+
+// in a parallel search when a bound is updated it must be propagated to other
+// subtrees that may be searched in parallel
+void downward_update_children(node_type *node) {
+  if (node) {
+    for (int ch = 0; ch < node->n_children && node->children[ch]; ch++) {
+      node_type *child = node->children[ch]; 
+      int continue_update = 0;
+      // this direct updating of children
+      // onlworks in shared memeory.
+      // in distributed memory the bounds have to be 
+      // sent as messages to the remote machine
+      int was_live = live_node(child);
+      continue_update |= child->a < node->a;
+      child->a = max(child->a, node->a);
+      continue_update |= child->b > node->b;
+      child->b = min(child->b, node->b);
+      if (continue_update) {
+	schedule(child, BOUND_DOWN);
+	if (was_live && dead_node(child)) {
+	  //	  printf("DOWN: %d <%d:%d>\n", child->path, child->a, child->b);
+      	  global_downward_aborts++;
+	  //
+	}
+      }
+    }
+  }
+}
+
+// process new bound, update my job queue for selects with this node and then propagate down
+void do_bound_down(node_type *node) {
+  if (node) {
+    if (update_selects_with_bound(node)) {
+      downward_update_children(node);
     }
   }
 }

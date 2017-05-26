@@ -10,23 +10,27 @@
  * defines
  */
 
-#define N_MACHINES 5
-#define TREE_WIDTH 6
-#define TREE_DEPTH 7
+#define N_MACHINES 1
+#define TREE_WIDTH 5
+#define TREE_DEPTH 8
+
+#define SEQ_DEPTH 1
 
 
-#define N_JOBS 100  // 100 jobs in job queue
+#define N_JOBS 10000  // 100 jobs in job queue
 
 #define INFTY  99999
 
 #define SELECT 1
 #define PLAYOUT 3
 #define UPDATE 4
+#define BOUND_DOWN 5
 
 #define MAXNODE 1
 #define MINNODE 2
 
-
+#define TRUE 1
+#define FALSE 0
 
 /*
  * structs
@@ -66,14 +70,17 @@ extern pthread_mutex_t jobmutex;
 extern pthread_mutex_t treemutex;
 extern int max_q_length[N_MACHINES];
 extern int n_par;
-
-
+extern int global_selects;
+extern int global_leaf_eval;
+extern int global_downward_aborts;
 
 /*
  * prototypes
  */
 
 void print_q_stats();
+int start_mtdf();
+int start_alphabeta(int a, int b);
 void set_best_child(node_type *node);
 job_type *new_job(node_type *n, int t);
 node_type *new_leaf(node_type *p);
@@ -83,9 +90,10 @@ int max_of_beta_kids(node_type *node);
 int min_of_alpha_kids(node_type *node);
 void compute_bounds(node_type *node);
 int leaf_node(node_type *node);
-int seq(int machine);
+int seq(node_type *node);
 int min(int a, int b);
 int max(int a, int b);
+int update_selects_with_bound(node_type *node);
 void sort_queue(job_type *q[], int t);
 void print_queue(job_type *q[], int t);
 node_type *next_brother(node_type *node);
@@ -112,5 +120,7 @@ node_type * first_live_child(node_type *node, int p);
 void do_playout(node_type *node);
 int evaluate(node_type *node);
 void do_update(node_type *node);
-void store_node(node_type *node);
+void do_bound_down(node_type *node);
+void downward_update_children(node_type *node);
+void store_node(node_type *node); 
 void update_bounds_down(node_type *node, int a, int b);

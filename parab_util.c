@@ -6,6 +6,9 @@
 #include <pthread.h>       // for mutex locks
 #include "parab.h"         // for prototypes and data structures
 
+
+
+
 /************************
  ** JOB              ***
  ***********************/
@@ -17,6 +20,12 @@ job_type *new_job(node_type *n, int t) {
   return job;
 }
 
+int lock(pthread_mutex_t *mutex) {
+  pthread_mutex_lock(mutex);
+}
+int unlock(pthread_mutex_t *mutex) {
+  pthread_mutex_unlock(mutex);
+}
 
 /************************
  *** NODE             ***
@@ -139,11 +148,12 @@ void print_tree(node_type *node, int d) {
  ***************************/
 
 int main(int argc, char *argv[]) { 
+  int g = -INFTY;
   if (argc != 2) {
     printf("Usage: %s n-par\n", argv[0]);
     exit(1);
   }
-  printf("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
+  printf("\n\n\n\n\n\n\n\n\n");
   n_par = atoi(argv[1]);
   if (n_par > TREE_WIDTH) {
     printf("It does not make sense to ask to schedule %d children at once in the job queue when nodes have only %d children to begin with\n", n_par, TREE_WIDTH);
@@ -154,18 +164,31 @@ int main(int argc, char *argv[]) {
     top[i] = 0;
     max_q_length[i] = 0;
   }
-
-  create_tree(TREE_DEPTH);
   total_jobs = 0;
-  schedule(root, SELECT);
+
+#undef ALPHABETA
+#ifdef ALPHABETA
+  g = start_alphabeta(-INFTY, INFTY);
+#endif
+
+#define NWS
+#ifdef NWS
+  g = start_alphabeta(-8, -7);
+#endif
   //  printf("Tree Created. Root: %d\n", root->board);
 
-  start_processes(N_MACHINES);
+#undef MTDF
+#ifdef MTDF
+  g = start_mtdf();
+#endif
 
-  printf("Done\n");
+  printf("Done. value: %d\n", g);
 
   //  print_tree(root, min(3, TREE_DEPTH));
   print_q_stats();
+  printf("Selects: %d\n", global_selects);
+  printf("Leaf Evals: %d\n", global_leaf_eval);
+  printf("Downward parallel aborted searches: %d\n", global_downward_aborts);
   return 0;
 }
 
@@ -216,16 +239,19 @@ void compute_bounds(node_type *node) {
 // if getting full, then turn sequential
 // other policies are possible: left first, deepest first (now it is
 // in effect a breadth first policy. not very efficient)
-int seq(int machine) {
+// par should be near leaves. not near root
+int seq(node_type *node) {
   // this assumes jobs are distributed evenly over queues
-  return top[machine] * 4 > N_JOBS;
+  int machine = node->board;
+  int depth = node->depth;  // if too far away from leaves then seq
+  return top[machine] * 4 > N_JOBS || depth > SEQ_DEPTH;
 }
 
 
 int not_empty(int top) {
-  pthread_mutex_lock(&jobmutex);
+  lock(&jobmutex);
   int t = top > 0;
-  pthread_mutex_unlock(&jobmutex);
+  unlock(&jobmutex);
   return t;
 }
 int empty(int top) {
@@ -233,16 +259,16 @@ int empty(int top) {
 }
 
 int not_empty_and_live_root() {
-  pthread_mutex_lock(&jobmutex);
+  lock(&jobmutex);
   int e =  total_jobs > 0 && live_node(root);
-  pthread_mutex_unlock(&jobmutex);
+  unlock(&jobmutex);
   return e;
 }
 
 int all_empty_and_live_root() {
-  pthread_mutex_lock(&jobmutex);
+  lock(&jobmutex);
   int e =  total_jobs <= 0 && live_node(root);
-  pthread_mutex_unlock(&jobmutex);
+  unlock(&jobmutex);
   return e;
 }
 
@@ -273,29 +299,30 @@ void start_processes(int n_proc) {
     cilk_spawn do_work_queue(i);
   }
   cilk_sync;
+  printf("Root is solved. jobs: %d. root: <%d:%d> \n", total_jobs, root->a, root->b);
 }
 
 void do_work_queue(int i) {
-  printf("Hi from machine %d  ", i);
-  printf("top[%d]: %d  ", i, top[i]);
+  //  printf("Hi from machine %d  ", i);
+  //  printf("top[%d]: %d  ", i, top[i]);
 
   int workerNum = __cilkrts_get_worker_number();
-  printf("My CILK worker number is %d\n", workerNum);
+  //  printf("My CILK worker number is %d\n", workerNum);
 
   // wait for jobs to arrive
   while (empty(top[i])) {
     // nothing
   }
-  printf("M%d starting job queue\n", i);
+  //  printf("M%d starting job queue\n", i);
   //  while (not_empty(top[i])) {
   //  while (live_node(root) && total_jobs > 0) {
   while (live_node(root)) {
     //  while (not_empty_and_live_root()) {
     job_type *job = NULL;
 
-    pthread_mutex_lock(&jobmutex);
+    lock(&jobmutex);
     job = pull_job(i);
-    pthread_mutex_unlock(&jobmutex);
+    unlock(&jobmutex);
 
     if (job) {
       //      pthread_mutex_lock(&treemutex);
@@ -313,7 +340,7 @@ void do_work_queue(int i) {
     //    pthread_mutex_unlock(&treemutex);
 
   }
-  printf("M%d Queue is empty or root is solved. jobs: %d. root: <%d:%d> \n", i, total_jobs, root->a, root->b);
+  //  printf("M%d Queue is empty or root is solved. jobs: %d. root: <%d:%d> \n", i, total_jobs, root->a, root->b);
 }
 
 // which q? one per processor
@@ -328,9 +355,9 @@ void add_to_queue(job_type *job) {
     exit(1);
   }
   
-  pthread_mutex_lock(&jobmutex);
+  lock(&jobmutex);
   push_job(home_machine, job);
-  pthread_mutex_unlock(&jobmutex);
+  unlock(&jobmutex);
 }
 
 void push_job(int home_machine, job_type *job) {
@@ -339,11 +366,15 @@ void push_job(int home_machine, job_type *job) {
   max_q_length[home_machine] = max(max_q_length[home_machine], top[home_machine]);
 #undef PRINT_PUSHES
 #ifdef PRINT_PUSHES
-  printf("    M%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
+  if (seq(job->node)) {
+    printf("ERROR: pushing job while in seq mode ");
+
+    printf("    M%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
 	 job->node->board, job->node->path, 
 	 job->node->maxormin==MAXNODE?"+":"-", 
 	 job->node->board, top[job->node->board], job->type_of_job,
 	 job->node->a, job->node->b);
+  }
 #endif
   sort_queue(queue[home_machine], top[home_machine]);
   //  print_queue(queue[home_machine], top[home_machine]);
@@ -379,6 +410,7 @@ void swap_jobs(job_type *q[], int t1, int t2) {
 // this is a single pass that, performed on a sorted list, will 
 // keep it sorted.
 void sort_queue(job_type *q[], int t) {
+  return;
   // last inserted job is at the top
   // percolate update to the top. that is, percolate SELECTS down
   if (!q[t]) {
@@ -399,6 +431,30 @@ void sort_queue(job_type *q[], int t) {
   }
 }
 
+// there is a new bound. update the selects in the job queue 
+int update_selects_with_bound(node_type *node) {
+  return TRUE; // since in the shared mem version all updates to bounds
+  // are already done in downwardupdartechildren: as soon as you update
+  // the bounds in the child nodes, since the job queue 
+  // has pointers to the nodes, all entries in the 
+  // job queue are updated automatically
+
+  int home_machine = node->board;
+  int continue_update = 0;
+  // find all the entries for this node in the job queue
+  for (int i = 0; i < top[home_machine]; i++) {
+    job_type *job = queue[home_machine][i];
+    if (job->node == node && job->type_of_job == SELECT) {
+      //      since node == node I do not really have to update the bounds, they are already updated....
+      continue_update |= job->node->a < node->a;
+      job->node->a = max(job->node->a, node->a);
+      continue_update |= job->node->b > node->b;
+      job->node->b = min(job->node->b, node->b);
+    }
+  }
+  return (continue_update);
+}
+
 void print_queue(job_type *q[], int t){
   for (int i = 0; i <= t; i++) {
     if (q[i] && q[i]->node) {
@@ -410,12 +466,41 @@ void print_queue(job_type *q[], int t){
 }
 
 void process_job(job_type *job) {
-  if (job) {
+  if (job && job->node && live_node(job->node)) {
     switch (job->type_of_job) {
-    case SELECT:  do_select(job->node);  break;
-      //  case EXPAND:  do_expand(job->node);  break;
-    case PLAYOUT: do_playout(job->node); break;
-    case UPDATE:  do_update(job->node);  break;
+    case SELECT:      do_select(job->node);  break;
+      // case EXPAND: do_expand(job->node);  break;
+    case PLAYOUT:     do_playout(job->node); break;
+    case UPDATE:      do_update(job->node);  break;
+    case BOUND_DOWN:  do_bound_down(job->node);  break;
     }
   }
 }
+
+
+// simple, new leaf is initialized with a wide window
+int start_alphabeta(int a, int b) {
+  create_tree(TREE_DEPTH);
+  root->a = a;
+  root->b = b;
+  schedule(root, SELECT);
+  start_processes(N_MACHINES);
+  return root->a;
+  // dit moet een return value zijn buiten het window. fail soft ab
+}
+
+int start_mtdf() {
+  int lb = -INFTY;
+  int ub = INFTY;
+  int g = 0;
+  int b = INFTY;
+
+  do {
+    if (g == lb) { b = g+1; } else { b = g; }
+    g = start_alphabeta(b-1, b);
+    if (g < b)   { ub = g;  } else { lb = g; }
+  } while (lb < ub);
+
+  return g;
+}
+
