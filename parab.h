@@ -79,6 +79,8 @@ extern int global_downward_aborts;
  */
 
 void print_q_stats();
+int lock(pthread_mutex_t *mutex);
+int unlock(pthread_mutex_t *mutex);
 int start_mtdf();
 int start_alphabeta(int a, int b);
 void set_best_child(node_type *node);

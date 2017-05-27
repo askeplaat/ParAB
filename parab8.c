@@ -266,6 +266,7 @@ void do_playout(node_type *node) {
 int evaluate(node_type *node) {
   //  return node->path;
   global_leaf_eval++;
+  srand(node->path); // create deterministic leaf values
   return rand() % (INFTY/8) - (INFTY/16);
 }
 

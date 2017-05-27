@@ -3,7 +3,7 @@ CC=gcc
 OPT=-g -pg -fcilkplus 
 LIBS=-lcilkrts -lpthread -ldl
 DEPS=parab.h Makefile
-SRCS=parab8.c parab_util.c
+SRCS=parab8.c parab_util.c parab_jobq.c
 #OBJS=parab4.o
 TARGET=parab
 
