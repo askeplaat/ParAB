@@ -154,7 +154,7 @@ int main(int argc, char *argv[]) {
     printf("Usage: %s {w,n,m} n-par\n", argv[0]);
     exit(1);
   }
-  printf("\n\n\n\n\n\n\n\n\n");
+  printf("\n\n\n\n\n");
   char *alg_choice = argv[1];
   n_par = atoi(argv[2]);
   if (n_par > TREE_WIDTH) {
@@ -214,7 +214,7 @@ int start_alphabeta(int a, int b) {
   root->b = b;
   schedule(root, SELECT);
   start_processes(N_MACHINES);
-  return root->b;
+  return root->b >= b ? root->a : root->b;
   // dit moet een return value zijn buiten het window. fail soft ab
 }
 

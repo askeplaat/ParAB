@@ -11,8 +11,8 @@
  */
 
 #define N_MACHINES 1
-#define TREE_WIDTH 5
-#define TREE_DEPTH 8
+#define TREE_WIDTH 2
+#define TREE_DEPTH 7
 
 #define SEQ_DEPTH 1
 
