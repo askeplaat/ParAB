@@ -139,17 +139,16 @@ void push_job(int home_machine, job_type *job) {
   total_jobs++;
   queue[home_machine][++(top[home_machine])] = job;
   max_q_length[home_machine] = max(max_q_length[home_machine], top[home_machine]);
-#undef PRINT_PUSHES
+#define PRINT_PUSHES
 #ifdef PRINT_PUSHES
   if (seq(job->node)) {
-        printf("ERROR: pushing job while in seq mode ");
-
-    printf("    M%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
+    //        printf("ERROR: pushing job while in seq mode ");
+  }
+  printf("    M%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
 	 job->node->board, job->node->path, 
 	 job->node->maxormin==MAXNODE?"+":"-", 
 	 job->node->board, top[job->node->board], job->type_of_job,
 	 job->node->a, job->node->b);
-  }
 #endif
   sort_queue(queue[home_machine], top[home_machine]);
   //  print_queue(queue[home_machine], top[home_machine]);
@@ -248,6 +247,7 @@ void process_job(job_type *job) {
     case PLAYOUT:     do_playout(job->node); break;
     case UPDATE:      do_update(job->node);  break;
     case BOUND_DOWN:  do_bound_down(job->node);  break;
+    otherwise: printf("ERROR: invalid job  type in q\n"); exit(0); break;
     }
   }
 }

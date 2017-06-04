@@ -47,6 +47,10 @@ node_type *new_leaf(node_type *p) {
   node->maxormin = p?opposite(p->maxormin):MAXNODE;
   node->wa = -INFTY;
   node->wb = INFTY;
+  if (p) {
+    node->wa = p->wa;
+    node->wb = p->wb;
+  }
   node->a = -INFTY;
   node->b = INFTY;
   node->lb = -INFTY;

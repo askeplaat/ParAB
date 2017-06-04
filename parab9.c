@@ -96,33 +96,33 @@ void do_select(node_type *node) {
     
     compute_bounds(node);
   
-    //      printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
-    //	 node->board, node->path, node->maxormin==MAXNODE?"+":"-",
-    //	 node->depth,
-    //	 node->a, node->b);
+      printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
+	 node->board, node->path, node->maxormin==MAXNODE?"+":"-",
+	 node->depth,
+	 node->a, node->b);
     
     if (leaf_node(node) && live_node(node)) { // depth == 0; frontier, do playout/eval
-      //      printf("M:%d PLAYOUT\n", node->board);
+      printf("M:%d PLAYOUT\n", node->board);
       schedule(node, PLAYOUT);
     } else if (live_node(node)) {
-      //      printf("M:%d LIVE: FLC\n", node->board);
+      printf("M:%d LIVE: FLC\n", node->board);
       node_type *flc = first_live_child(node, 1);
       if (!flc) {
 	//         printf("ERROR: FLC is null. node: %d\n", node->path);
       //      exit(1);
       } else if (seq(flc)) { //doe het van het kind (seq(first_child))
-	//	printf("FLC: Scheduling one child p:%d <%d:%d>\n", 
-	//	       flc->path, flc->a, flc->b);
+	printf("FLC: Scheduling one child p:%d <%d:%d>\n", 
+	       flc->path, flc->a, flc->b);
 	// schedule one child. not much parallelism
 	schedule(flc, SELECT); // first live child finds a live child or does and expand creating a new child
       } else {
 	// schedule many children in parallel
 	for (int p = 0; p < n_par; p++) {
-	  //	  printf("M:%d P:%d par child:%d/%d\n", 
-	  //	         node->board, node->path, p, n_par);
+	  printf("M:%d P:%d par child:%d/%d\n", 
+		 node->board, node->path, p, n_par);
 	  node_type *child = first_live_child(node, p+1); 
 	  if (child && !seq(child)) {
-	    //            printf("child: P:%d\n", child->path);
+	    printf("child: P:%d\n", child->path);
 	    schedule(child, SELECT); // first live child finds a live child or does and expand creating a new child
 	  } else { 
 	    if (!child) {
@@ -247,8 +247,8 @@ node_type * first_live_child(node_type *node, int p) {
 // just std ab evaluation. no mcts playout
 void do_playout(node_type *node) {
   node->a = node->b = node->lb = node->ub = evaluate(node);
-  //  printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
-  //	 node->board, node->path, node->depth, node->a);
+  printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
+  	 node->board, node->path, node->depth, node->a);
   // can we do this? access a pointer of a node located at another machine?
   //  schedule(node->parent, UPDATE, node->lb, node->ub);
   if (node->parent) {
@@ -298,7 +298,7 @@ void do_update(node_type *node) {
 				      par search is more than ensemble. in ensemble search all searches are independent. in par they are dependent, the influence each other, one result may stop 
 				      bound propagtion, is that asynch to job queue, just scan all jobs for subchildren, and update bound, or can we send an update/select job to the queues?
     */
-#undef PRINT_UPDATE
+#define PRINT_UPDATE
 #ifdef PRINT_UPDATE
     if (node && node->parent) {
       printf("M%d P%d %s UPDATE d:%d  --  %d:<%d:%d> n_ch:%d\n", 
