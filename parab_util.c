@@ -45,8 +45,12 @@ node_type *new_leaf(node_type *p) {
   node_type *node = malloc(sizeof(node_type));
   node->board = rand() % N_MACHINES;
   node->maxormin = p?opposite(p->maxormin):MAXNODE;
+  node->wa = -INFTY;
+  node->wb = INFTY;
   node->a = -INFTY;
   node->b = INFTY;
+  node->lb = -INFTY;
+  node->ub = INFTY;
   node->children =  NULL;
   node->n_children = 0;
   node->parent = p;
@@ -98,6 +102,40 @@ int min_of_alpha_kids(node_type *node) {
   }
   // if there are unexpanded kids in a min node, then alpha is -infty
   return (a == INFTY)?-INFTY:a;
+}
+
+int max_of_ub_kids(node_type *node) {
+  int ub = -INFTY;
+  int ch = 0;
+  for (ch = 0; ch < node->n_children && node->children[ch]; ch++) {
+    node_type *child = node->children[ch];
+    if (child) {
+      ub = max(ub, child->ub);
+    }
+  }
+  if (ch < node->n_children) {
+    ub = -INFTY;
+  }
+  // if there are unexpanded kids in a max node, then beta is infty
+  // the upper bound of a max node with open children is infinity, it can
+  // still be any value
+  return (ub == -INFTY)?INFTY:ub;
+}
+
+int min_of_lb_kids(node_type *node) {
+  int lb = INFTY;
+  int ch = 0;
+  for (ch = 0; ch < node->n_children && node->children[ch]; ch++) {
+    node_type *child = node->children[ch];
+    if (child) {
+      lb = min(lb, child->lb);
+    } 
+  }
+  if (ch < node->n_children) {
+    lb = INFTY;
+  }
+  // if there are unexpanded kids in a min node, then alpha is -infty
+  return (lb == INFTY)?-INFTY:lb;
 }
 
 void set_best_child(node_type *node) {
@@ -168,6 +206,13 @@ int main(int argc, char *argv[]) {
   }
   total_jobs = 0;
 
+  int numWorkers = __cilkrts_get_nworkers();
+  printf("CILK has %d worker threads\n", numWorkers);
+
+  /* 
+   * process algorithms
+   */
+
   if (strcmp(alg_choice, "w") == 0) {
     printf("Wide-window Alphabeta\n");
     g = start_alphabeta(-INFTY, INFTY);
@@ -209,12 +254,14 @@ void print_q_stats() {
 
 // simple, new leaf is initialized with a wide window
 int start_alphabeta(int a, int b) {
-  create_tree(TREE_DEPTH);
-  root->a = a;
-  root->b = b;
+  if (!root) {
+    create_tree(TREE_DEPTH);// aha! each alphabeta always creates new tree!
+  }
+  root->wa = a; // store bounds in passed-down window alpha/beta
+  root->wb = b;
   schedule(root, SELECT);
   start_processes(N_MACHINES);
-  return root->b >= b ? root->a : root->b;
+  return root->ub >= b ? root->lb : root->ub;
   // dit moet een return value zijn buiten het window. fail soft ab
 }
 
@@ -226,6 +273,7 @@ int start_mtdf() {
 
   do {
     if (g == lb) { b = g+1; } else { b = g; }
+    printf("MTD(%d)\n", b);
     g = start_alphabeta(b-1, b);
     if (g < b)   { ub = g;  } else { lb = g; }
   } while (lb < ub);
@@ -246,10 +294,19 @@ int leaf_node(node_type *node) {
 }
 int live_node(node_type *node) {
   //  return node && node->lb < node->ub; // alpha beta???? window is live. may be open or closed
-  return node && node->a < node->b; // alpha beta???? window is live. may be open or closed
+  return node && max(node->wa, node->a) < min(node->wb, node->b); // alpha beta???? window is live. may be open or closed
+}
+int live_node_lbub(node_type *node) {
+  //  return node && node->lb < node->ub; // alpha beta???? window is live. may be open or closed
+  printf("ERROR: using lb/ub\n");
+  return node && node->lb < node->ub; // alpha beta???? window is live. may be open or closed
 }
 int dead_node(node_type *node) {  
   return node && !live_node(node);    // ab cutoff. is closed
+}
+int dead_node_lbub(node_type *node) {  
+  printf("ERROR: using lb/ub\n");
+  return node && !live_node_lbub(node);    // ab cutoff. is closed
 }
 void compute_bounds(node_type *node) {
   if (node && node->parent) {

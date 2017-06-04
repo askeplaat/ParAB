@@ -58,7 +58,7 @@
 
 
 /***************************
- ** VARIABLES             **
+ ** GLOBAL VARIABLES      **
  **************************/
 
 node_type *root = NULL;
@@ -96,38 +96,33 @@ void do_select(node_type *node) {
     
     compute_bounds(node);
   
-    //  printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
+    //      printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
     //	 node->board, node->path, node->maxormin==MAXNODE?"+":"-",
     //	 node->depth,
     //	 node->a, node->b);
     
     if (leaf_node(node) && live_node(node)) { // depth == 0; frontier, do playout/eval
-      //    printf("M:%d PLAYOUT\n", node->board);
+      //      printf("M:%d PLAYOUT\n", node->board);
       schedule(node, PLAYOUT);
     } else if (live_node(node)) {
       //      printf("M:%d LIVE: FLC\n", node->board);
       node_type *flc = first_live_child(node, 1);
       if (!flc) {
-      //      printf("ERROR: FLC is null. node: %d\n", node->path);
+	//         printf("ERROR: FLC is null. node: %d\n", node->path);
       //      exit(1);
       } else if (seq(flc)) { //doe het van het kind (seq(first_child))
-	/*
-	  In this way seq creates shallow-first parallelism. 
-Should not we try to create deep-first parallelism?
-  Becasue parallelism that is shallow, uses loose-bounds that are used 
-  for large xubtrees.very inefficient. Loose bounds should be use for small trees, little damage. large trees should be searched with tight bounds.
-      */
-
+	//	printf("FLC: Scheduling one child p:%d <%d:%d>\n", 
+	//	       flc->path, flc->a, flc->b);
 	// schedule one child. not much parallelism
 	schedule(flc, SELECT); // first live child finds a live child or does and expand creating a new child
       } else {
 	// schedule many children in parallel
 	for (int p = 0; p < n_par; p++) {
-	  //        printf("M:%d P:%d par child:%d/%d\n", 
-	  //	       node->board, node->path, p, n_par);
+	  //	  printf("M:%d P:%d par child:%d/%d\n", 
+	  //	         node->board, node->path, p, n_par);
 	  node_type *child = first_live_child(node, p+1); 
 	  if (child && !seq(child)) {
-	    //	  printf("child: P:%d\n", child->path);
+	    //            printf("child: P:%d\n", child->path);
 	    schedule(child, SELECT); // first live child finds a live child or does and expand creating a new child
 	  } else { 
 	    if (!child) {
@@ -139,8 +134,8 @@ Should not we try to create deep-first parallelism?
 	}
       }
     } else if (dead_node(node) && root != node) { // cutoff: alpha==beta
-      //    printf("M%d DEAD: bound computation causes cutoff d:%d p:%d\n", node->board,
-      //	   node->depth, node->path);
+      //      printf("M%d DEAD: bound computation causes cutoff d:%d p:%d\n", node->board,
+      //     node->depth, node->path);
 #define UPDATE_AFTER_CUTOFF
 #ifdef UPDATE_AFTER_CUTOFF
       if (node->parent) {

@@ -11,8 +11,8 @@
  */
 
 #define N_MACHINES 1
-#define TREE_WIDTH 2
-#define TREE_DEPTH 7
+#define TREE_WIDTH 15
+#define TREE_DEPTH 4
 
 #define SEQ_DEPTH 1
 
@@ -39,8 +39,12 @@
 typedef struct node node_type;
 typedef struct node { 
   int board;
-  int a;
-  int b;
+  int wa; // window-alpha, passed in from caller.
+  int wb;  // wa and wb are only used in liveness calulation. not stored in nodes lb, ub, a, b
+  int a; // true alpha computed as max lower bound
+  int b; // true beta, computerd as lowest upper bound
+  int lb;
+  int ub;
   node_type **children;
   int n_children;
   node_type *parent;
@@ -90,6 +94,8 @@ int opposite(int m);
 node_type *first_child(node_type *node);
 int max_of_beta_kids(node_type *node);
 int min_of_alpha_kids(node_type *node);
+int max_of_ub_kids(node_type *node);
+int min_of_lb_kids(node_type *node);
 void compute_bounds(node_type *node);
 int leaf_node(node_type *node);
 int seq(node_type *node);
@@ -109,6 +115,8 @@ int unexpanded_node(node_type *node);
 int expanded_node(node_type *node);
 int live_node(node_type *node);
 int dead_node(node_type *node);
+int live_node_lbub(node_type *node);
+int dead_node_lbub(node_type *node);
 void start_processes(int n_proc);
 void do_work_queue(int i);
 int not_empty_and_live_root();

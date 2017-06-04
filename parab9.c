@@ -199,7 +199,7 @@ node_type * first_live_child(node_type *node, int p) {
   for (ch = 0; 
        ch < node->n_children && 
 	 ((node->children[ch] && 
-	   dead_node(node->children[ch])) ||
+	   dead_node(node->children[ch])) ||  // lbub for NWS to work
 	  ++found < p); ch++) {
     // this child exists. try next
     older_brother = node->children[ch];

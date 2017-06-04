@@ -70,14 +70,11 @@ void start_processes(int n_proc) {
   //  schedule(root, SELECT, -INFTY, INFTY);
   //  for (i = 0; i<n_proc; i++) {
 
-  int numWorkers = __cilkrts_get_nworkers();
-  printf("CILK has %d worker threads\n", numWorkers);
-
   for (i = 0; i<N_MACHINES; i++) {
     cilk_spawn do_work_queue(i);
   }
   cilk_sync;
-  printf("Root is solved. jobs: %d. root: <%d:%d> \n", total_jobs, root->a, root->b);
+  printf("Root is solved. jobs: %d. root: <%d:%d> [%d:%d]\n", total_jobs, root->a, root->b, root->lb, root->ub);
 }
 
 void do_work_queue(int i) {
@@ -145,7 +142,7 @@ void push_job(int home_machine, job_type *job) {
 #undef PRINT_PUSHES
 #ifdef PRINT_PUSHES
   if (seq(job->node)) {
-    printf("ERROR: pushing job while in seq mode ");
+        printf("ERROR: pushing job while in seq mode ");
 
     printf("    M%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
 	 job->node->board, job->node->path, 
