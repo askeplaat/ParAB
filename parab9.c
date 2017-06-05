@@ -95,35 +95,36 @@ void do_select(node_type *node) {
      */
     
     compute_bounds(node);
-  
-      printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
-	 node->board, node->path, node->maxormin==MAXNODE?"+":"-",
-	 node->depth,
-	 node->a, node->b);
-    
+    /*
+    printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
+	   node->board, node->path, node->maxormin==MAXNODE?"+":"-",
+	   node->depth,
+	   node->a, node->b);
+    */
     if (leaf_node(node) && live_node(node)) { // depth == 0; frontier, do playout/eval
-      printf("M:%d PLAYOUT\n", node->board);
+      //      printf("M:%d PLAYOUT\n", node->board);
       schedule(node, PLAYOUT);
     } else if (live_node(node)) {
-      printf("M:%d LIVE: FLC\n", node->board);
+      //      printf("M:%d LIVE: FLC\n", node->board);
       node_type *flc = first_live_child(node, 1);
       if (!flc) {
 	//         printf("ERROR: FLC is null. node: %d\n", node->path);
       //      exit(1);
       } else if (seq(flc)) { //doe het van het kind (seq(first_child))
-	printf("FLC: Scheduling one child p:%d <%d:%d>\n", 
-	       flc->path, flc->a, flc->b);
-	// schedule one child. not much parallelism
-	schedule(flc, SELECT); // first live child finds a live child or does and expand creating a new child
+	//	printf("FLC: Scheduling one child p:%d <%d:%d>\n", 
+	//	       flc->path, flc->a, flc->b);
+	schedule(flc, SELECT); 
+	// first live child finds a live child or does and expand creating a new child
       } else {
 	// schedule many children in parallel
 	for (int p = 0; p < n_par; p++) {
-	  printf("M:%d P:%d par child:%d/%d\n", 
-		 node->board, node->path, p, n_par);
+	  //	 	  printf("M:%d P:%d par child:%d/%d\n", 
+	  //	 		 node->board, node->path, p, n_par);
 	  node_type *child = first_live_child(node, p+1); 
 	  if (child && !seq(child)) {
-	    printf("child: P:%d\n", child->path);
-	    schedule(child, SELECT); // first live child finds a live child or does and expand creating a new child
+	    //	    printf("child: P:%d\n", child->path);
+	    schedule(child, SELECT); 
+	    // first live child finds a live child or does and expand creating a new child
 	  } else { 
 	    if (!child) {
 	      //	    printf("child is null\n");
@@ -171,13 +172,13 @@ En wat is de betekenis van de pointer die new_leaf opleverd als de nieuwe leaf
 // Can this work? it references nodes (children) at other home machines
 // must find out if remote pointers is doen by new_leaf or by schedule
 node_type * first_live_child(node_type *node, int p) {
-
-  //  printf("M%d P%d: %s FLC d:%d    ", 
-  //	 node->board,
-  //	 node->path,
-  //	 node->maxormin==MAXNODE?"+":"-",
-  //	 node->depth);
-
+  /*
+  printf("M%d P%d: %s FLC d:%d    ", 
+  	 node->board,
+  	 node->path,
+  	 node->maxormin==MAXNODE?"+":"-",
+  	 node->depth);
+  */
   int ch = 0;
   int found = 0;
   node_type *older_brother = NULL;
@@ -194,6 +195,13 @@ node_type * first_live_child(node_type *node, int p) {
     }
   }
 
+  // make sure existing children get the new wa and wb bounds of their parent
+  for (ch = 0;
+       ch < node->n_children && node->children[ch]; ch++) {
+    node->children[ch]->wa = node->wa;
+    node->children[ch]->wb = node->wb;
+  }
+
   // find the p-th live-child
   // find first p empty
   for (ch = 0; 
@@ -203,13 +211,19 @@ node_type * first_live_child(node_type *node, int p) {
 	  ++found < p); ch++) {
     // this child exists. try next
     older_brother = node->children[ch];
+    //    printf("CHILD: %d <%d:%d> dead: %d (%d:%d)\n", 
+    //	   node->children[ch]->path, 
+    //	   max(node->children[ch]->a, node->children[ch]->wa), 
+    //	   min(node->children[ch]->b, node->children[ch]->wb), 
+    //	   dead_node(node->children[ch]),
+    //	   node->children[ch]->a, node->children[ch]->b);
   }
 
   if (ch >= node->n_children) { 
     
-    //      printf("M%d ERROR: all children already expanded: %d\n", 
-    //	     node->board, node->path);
-    //      print_tree(root, TREE_DEPTH);
+    //    printf("M%d ERROR: all children already expanded: %d\n", 
+    //	   node->board, node->path);
+    //    print_tree(root, 1);
     //      print_q_stats();
     //      exit(0);
     
@@ -230,8 +244,8 @@ node_type * first_live_child(node_type *node, int p) {
       node->children[ch]->path = 10 * node->path;
       node->children[ch]->path += ch + 1;
       //      printf("M%d P%d FLC EXPAND created ch:%d -d:%d ch-p:%d\n", 
-      //	     node->board, node->path,  
-      //	     ch, node->children[ch]->depth, node->children[ch]->path);
+      //      	     node->board, node->path,  
+      //      	     ch, node->children[ch]->depth, node->children[ch]->path);
       return node->children[ch];
     } 
   }  else {
@@ -247,8 +261,8 @@ node_type * first_live_child(node_type *node, int p) {
 // just std ab evaluation. no mcts playout
 void do_playout(node_type *node) {
   node->a = node->b = node->lb = node->ub = evaluate(node);
-  printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
-  	 node->board, node->path, node->depth, node->a);
+  //  printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
+  //  	 node->board, node->path, node->depth, node->a);
   // can we do this? access a pointer of a node located at another machine?
   //  schedule(node->parent, UPDATE, node->lb, node->ub);
   if (node->parent) {
@@ -277,17 +291,19 @@ void do_update(node_type *node) {
     int continue_updating = 0;
     
     if (node->maxormin == MAXNODE) {
+      int old_a = node->a;
       node->a = max(node->a, node->best_child->a);
       node->b = max_of_beta_kids(node); //  infty if unexpanded kids
       // if we have expanded a full max node, then a beta has been found, which should be propagated upwards to my min parenr
-      continue_updating = (node->b != INFTY);
+      continue_updating = (node->b != INFTY || node->a != old_a);
       node->lb = max(node->lb, node->best_child->lb);
       node->ub = max_of_ub_kids(node);
     }
     if (node->maxormin == MINNODE) {
       node->a = min_of_alpha_kids(node);
+      int old_b = node->b;
       node->b = min(node->b, node->best_child->b);
-      continue_updating = (node->a != -INFTY); // if a full min node has been expanded, then an alpha has been bound, and we should propagate it to the max parent
+      continue_updating = (node->a != -INFTY || node->b != old_b); // if a full min node has been expanded, then an alpha has been bound, and we should propagate it to the max parent
       node->lb = min_of_lb_kids(node);
       node->ub = min(node->ub, node->best_child->ub);
     }
@@ -298,7 +314,7 @@ void do_update(node_type *node) {
 				      par search is more than ensemble. in ensemble search all searches are independent. in par they are dependent, the influence each other, one result may stop 
 				      bound propagtion, is that asynch to job queue, just scan all jobs for subchildren, and update bound, or can we send an update/select job to the queues?
     */
-#define PRINT_UPDATE
+#undef PRINT_UPDATE
 #ifdef PRINT_UPDATE
     if (node && node->parent) {
       printf("M%d P%d %s UPDATE d:%d  --  %d:<%d:%d> n_ch:%d\n", 

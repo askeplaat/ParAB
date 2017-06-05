@@ -108,7 +108,13 @@ void do_work_queue(int i) {
     //    pthread_mutex_lock(&treemutex);
     //    pthread_mutex_lock(&jobmutex);
     if (all_empty_and_live_root()) {
-      //      printf("* ");
+      /*
+      printf("* live root: %d, ab:<%d:%d>, lbub:<%d:%d>, wawb:<%d:%d>\n", 
+	     live_node(root), 
+	     root->a, root->b,
+	     root->lb, root->ub, 
+	     root->wa, root->wb);
+      */
       schedule(root, SELECT);
     }
     //    pthread_mutex_unlock(&jobmutex);
@@ -139,7 +145,7 @@ void push_job(int home_machine, job_type *job) {
   total_jobs++;
   queue[home_machine][++(top[home_machine])] = job;
   max_q_length[home_machine] = max(max_q_length[home_machine], top[home_machine]);
-#define PRINT_PUSHES
+#undef PRINT_PUSHES
 #ifdef PRINT_PUSHES
   if (seq(job->node)) {
     //        printf("ERROR: pushing job while in seq mode ");
@@ -243,7 +249,6 @@ void process_job(job_type *job) {
   if (job && job->node && live_node(job->node)) {
     switch (job->type_of_job) {
     case SELECT:      do_select(job->node);  break;
-      // case EXPAND: do_expand(job->node);  break;
     case PLAYOUT:     do_playout(job->node); break;
     case UPDATE:      do_update(job->node);  break;
     case BOUND_DOWN:  do_bound_down(job->node);  break;
