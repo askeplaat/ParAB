@@ -1,0 +1,70 @@
+- Wide window roll out alphabeta, Seq shallow
+- Wide window roll out alphabeta, Seq deep
+- NWS roll out alphabeta, Seq shallow in-tree par), sequential MTDF driver
+- NWS roll out alphabeta, Seq deep in-tree par), sequential MTDF driver
+- NWS roll out alphabeta, no in tree par, par MTDF ensemble around multiple f
+- MCTS roll out par seq?
+- TDS & ensemble MTDF????
+
+
+6 june 2017
+duranium
+
+N_MACHINES == 1
+
+[-3833]
+par 1 wide window AB, Seq Deep, w8d8: real 9.8, user 11.1, sys 5m50.9, selects 4379305, leaf: 412048, abort: 5907
+par 2 wide window AB, Seq Deep, w8d8: real 6.7, user 7.4,  sys 4m3.3,  selects 2123810, leaf: 509034, abort: 20978
+par 3 wide window AB, Seq Deep, w8d8: real 6.9, user 7.5,  sys 4m12.7, selects 1708373, leaf: 604283, abort: 35877
+par 4 wide window AB, Seq Deep, w8d8: real 8.1, user 8.7,  sys 5m0.7,  selects 1389334, leaf: 649399, abort: 54775 
+par 8 wide window AB, Seq Deep, w8d8: real 13.9, user 15.3, sys 8m31.2, selects 1568371, leaf: 1195581, abort: 58338
+
+[-3833]
+par 1 narrow window MTDF, Seq Deep, Seq driver, w8d8: real 5.3, user 5.5, sys 3m11.2, selects 2169936, leaf: 241104, abort: 1
+par 2 narrow window MTDF, Seq Deep, Seq driver, w8d8: real 7.1, user 6.0, sys 4m17.6, selects 1038991, leaf: 280678, abort: 40047
+par 3 narrow window MTDF, Seq Deep, Seq driver, w8d8: real 4.1, user 4.3, sys 2m34.8, selects 831301, leaf: 318493, abort: 85745
+par 4 narrow window MTDF, Seq Deep, Seq driver, w8d8: real 4.0, user 4.2, sys 2m14.8, selects 682868, leaf: 318863, abort: 136010
+par 8 narrow window MTDF, Seq Deep, Seq driver, w8d8: real 3.6, user 3.7, sys 2m5.1, selects 415139, leaf: 240871, abort: 240871
+
+
+N_MACHINES == 2
+
+[-3833]
+par 1 wide window AB, Seq Deep, w8d8: real 3m55, user 3m7, sys 138m25, selects 4934566, leaf: 420948, Abort: 6939
+par 2 wide window AB, Seq Deep, w8d8: real 2m0, user 1m31, sys 71m51, selects 2438133, leaf: 516776, abort: 21196 
+par 4 wide window AB, Seq Deep, w8d8: real 1m44, user 1m20, sys 61m55, selects 1654670, leaf: 689139, abort: 42515
+par 8 wide window AB, Seq Deep, w8d8: real 1m27, user 1m7, sys 52m32, selects 1767019, leaf: 1056633, abort: 72559
+
+[-3833]
+par 1 narrow window MTDF, Seq Deep, Seq Driver, w8d8, real 2m3, user 1m43, sys 73m38, selects 2528896, leaf: 245855, abort: 7867
+par 2 narrow window MTDF, Seq Deep, Seq Driver, w8d8, real 1m2, user 0m50, sys 37m29, selects 1234628, leaf: 291553, abort: 40449
+par 4 narrow window MTDF, Seq Deep, Seq Driver, w8d8, real 49, user 38, sys 29m12, selects 831353, leaf: 349893, abort: 125708
+par 7(!) narrow window MTDF, Seq Deep, Seq Driver, w8d8, real 52 , user 40, sys 30m46, selects 769839, leaf: 404568, abort: 275002
+
+N_MACHINES == 4
+
+par 2 wide window AB, Seq Deep, w8d8: real 4m7, user 4m28, sys 145m24, selects 2758504, leaf: 523205, Abort: 22465
+par 4 wide window AB, Seq Deep, w8d8: real 2m49, user 3m4, sys 98m53, selects 1837116, leaf: 702866, abort: 44458
+par 8 wide window AB, Seq Deep, w8d8: real 2m23, user 2m22, sys 83m50, selects 1862004, leaf: 1078897, abort: 78054
+
+par 1 narrow window MTDF, Seq Deep, Seq Driver, w8d8, real 4m18, user 4m28, sys 150m59, selects: 3061688, leaf: 243592, abort: 12368
+par 2 narrow window MTDF, Seq Deep, Seq Driver, w8d8, real 2m11, user 2m10, sys 76m3, selects: 1446734, leaf: 295408, abort: 43227
+par 4 narrow window MTDF, Seq Deep, Seq Driver, w8d8, real 1m19, user 1m17, sys 46m14, selects: 955224, leaf: 368926, abort: 118955
+par 7(!) narrow window MTDF, Seq Deep, Seq Driver, w8d8, real 
+
+N_MACHINES == 8
+
+par 1 wide window AB, Seq Deep, w8d8: real 10m17, user 6m45, sys 361m32, selects 7159844, leaf: 420574, abort: 5890
+par 2 wide window AB, Seq Deep, w8d8: real 4m57, user 2m57, sys 174m49, selects 3402081, leaf: 521246, abort: 25455
+par 4 wide window AB, Seq Deep, w8d8: real 3m6, user 2m20, sys 107m12, selects 2088591, leaf: 701431, abort: 53955
+par 8 wide window AB, Seq Deep, w8d8, real 3m38, user 3m11, sys 121m10, selects 2001883, leaf: 1066391, abort: 98903
+
+par 1 narrow window MTDF, Seq Deep, Seq Driver, w8d8, real: 5m3, user: 2m21, sys: 176m46, selects: 3769234, leaf: 242825, abort: 14393
+par 2 narrow window MTDF, Seq Deep, Seq Driver, w8d8, real: 2m27, user: 1m44, sys: 84m44, selects: 1769392, leaf: 297464, abort: 42542
+par 4 narrow window MTDF, Seq Deep, Seq Driver, w8d8, real: 1m36, user: 1m14, sys: 54m54, selects: 1115807, leaf: 377113, abort: 112385
+par 8 narrow window MTDF, Seq Deep, Seq Driver, w8d8, real: 1m19, user: 1m10, sys: 44m9, selects: 948520, leaf: 469401, abort: 288349
+
+- there is much par implementation overhead. sequential is much faster. locks? job queues management? search overhead.
+- mtdf is faster than wide window AB.
+- more par gives speedup in wide and in narrow window. Why? Why does more algorithmic par give less selects (same leaves mtdf, more leaves ab)? is it ordering? left-to-right DFS not optimal, a more breadth-first search finds best move quicker? is BFS more efficient than DFS on unordered trees?
+- search overhead I should calculate, but appears to be less in narrow window. so hypothesis that narrow windows suffer much less from search overhead appears to be be correct.

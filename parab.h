@@ -10,9 +10,9 @@
  * defines
  */
 
-#define N_MACHINES 1
-#define TREE_WIDTH 7
-#define TREE_DEPTH 5
+#define N_MACHINES 8
+#define TREE_WIDTH 8
+#define TREE_DEPTH 8
 
 #define SEQ_DEPTH 1
 

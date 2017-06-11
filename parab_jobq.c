@@ -85,7 +85,7 @@ void do_work_queue(int i) {
   //  printf("My CILK worker number is %d\n", workerNum);
 
   // wait for jobs to arrive
-  while (empty(top[i])) {
+  while (empty(top[i]) && live_node(root)) {
     // nothing
   }
   //  printf("M%d starting job queue\n", i);
@@ -100,9 +100,9 @@ void do_work_queue(int i) {
     unlock(&jobmutex);
 
     if (job) {
-      //      pthread_mutex_lock(&treemutex);
+      pthread_mutex_lock(&treemutex);
       process_job(job);
-      //      pthread_mutex_unlock(&treemutex);
+      pthread_mutex_unlock(&treemutex);
     }
 
     //    pthread_mutex_lock(&treemutex);
@@ -246,6 +246,7 @@ void print_queue(job_type *q[], int t){
 }
 
 void process_job(job_type *job) {
+  //  printf("Process job\n");
   if (job && job->node && live_node(job->node)) {
     switch (job->type_of_job) {
     case SELECT:      do_select(job->node);  break;

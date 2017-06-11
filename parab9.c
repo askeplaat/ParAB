@@ -85,17 +85,13 @@ int global_downward_aborts = 0;
 void do_select(node_type *node) {
   global_selects++;
   if (node && live_node(node)) {
-    if (node == root && dead_node(node)) {
-      printf("root is solved: %d:%d\n", root->a, root->b);
-      return;
-    }
 
     /* 
      * alpha beta update, top down 
      */
     
     compute_bounds(node);
-    /*
+    /*XF
     printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
 	   node->board, node->path, node->maxormin==MAXNODE?"+":"-",
 	   node->depth,
@@ -124,14 +120,7 @@ void do_select(node_type *node) {
 	  if (child && !seq(child)) {
 	    //	    printf("child: P:%d\n", child->path);
 	    schedule(child, SELECT); 
-	    // first live child finds a live child or does and expand creating a new child
-	  } else { 
-	    if (!child) {
-	      //	    printf("child is null\n");
-	    } else {
-	      //	    printf("seq prevents parallelism. M:%d, top:%d\n", child->board, top[child->board]);
-	    }
-	  }
+	  } 
 	}
       }
     } else if (dead_node(node) && root != node) { // cutoff: alpha==beta
