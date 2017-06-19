@@ -74,6 +74,9 @@ int global_selects = 0;
 int global_leaf_eval = 0;
 int global_downward_aborts = 0;
 
+/* statistics to track which child caused cutoffs at CUT nodes, measure for the orderedness of the tree */
+double global_unorderedness_seq_x[TREE_DEPTH];
+int global_unorderedness_seq_n[TREE_DEPTH];
 
 /******************************
  *** SELECT                 ***
@@ -91,12 +94,12 @@ void do_select(node_type *node) {
      */
     
     compute_bounds(node);
-    /*XF
+    /*
     printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
 	   node->board, node->path, node->maxormin==MAXNODE?"+":"-",
 	   node->depth,
 	   node->a, node->b);
-    */
+    */    
     if (leaf_node(node) && live_node(node)) { // depth == 0; frontier, do playout/eval
       //      printf("M:%d PLAYOUT\n", node->board);
       schedule(node, PLAYOUT);
@@ -107,25 +110,55 @@ void do_select(node_type *node) {
 	//         printf("ERROR: FLC is null. node: %d\n", node->path);
       //      exit(1);
       } else if (seq(flc)) { //doe het van het kind (seq(first_child))
+	//	printf("PUO: seq %d/%d\n", node->path, flc->path);
+	// children. this is an attempt to prevent parallel search overhead.
+	// this should really only be done at CUT nodes, doing it at ALL nodes throttles
+	// parallelism too much
 	//	printf("FLC: Scheduling one child p:%d <%d:%d>\n", 
 	//	       flc->path, flc->a, flc->b);
 	schedule(flc, SELECT); 
 	// first live child finds a live child or does and expand creating a new child
       } else {
+
+#ifdef PUO 
+	int pp = 0;
+	if (global_unorderedness_seq_n[node->depth]) {
+	  pp = global_unorderedness_seq_x[node->depth]/global_unorderedness_seq_n[node->depth];
+	} else {
+	  pp = 1;
+	}
+	if (pp < 1 || pp > TREE_WIDTH) {
+	  pp = 1;
+	  printf("X");
+	}
+#else
+	int pp = n_par;
+#endif
+	//	printf("PUO: par %d/%d\n", node->path, flc->path);
 	// schedule many children in parallel
-	for (int p = 0; p < n_par; p++) {
+	for (int p = 0; p < pp; p++) {
 	  //	 	  printf("M:%d P:%d par child:%d/%d\n", 
 	  //	 		 node->board, node->path, p, n_par);
 	  node_type *child = first_live_child(node, p+1); 
 	  if (child && !seq(child)) {
 	    //	    printf("child: P:%d\n", child->path);
+	    //dit klopt nog niet. het moet niet meer kinderen parallel schedulen dan suo aangeeft: het aantal dat sequentieel gedaan zou zijn.
 	    schedule(child, SELECT); 
 	  } 
 	}
       }
     } else if (dead_node(node) && root != node) { // cutoff: alpha==beta
       //      printf("M%d DEAD: bound computation causes cutoff d:%d p:%d\n", node->board,
-      //     node->depth, node->path);
+      //	     node->depth, node->path);
+
+      // record cutoff and do this in statistics which child number caused it
+      global_unorderedness_seq_x[node->depth] += (double)child_number(node->path);
+      global_unorderedness_seq_n[node->depth]++;
+      /*
+      printf("guos(%d): %lf/%d\n", node->depth,
+	     global_unorderedness_seq_x[node->depth],
+	     global_unorderedness_seq_n[node->depth]);
+      */
 #define UPDATE_AFTER_CUTOFF
 #ifdef UPDATE_AFTER_CUTOFF
       if (node->parent) {
@@ -186,7 +219,8 @@ node_type * first_live_child(node_type *node, int p) {
 
   // make sure existing children get the new wa and wb bounds of their parent
   for (ch = 0;
-       ch < node->n_children && node->children[ch]; ch++) {
+       ch < node->n_children && node->children[ch]; 
+       ch++) {
     node->children[ch]->wa = node->wa;
     node->children[ch]->wb = node->wb;
   }

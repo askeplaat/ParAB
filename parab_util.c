@@ -171,6 +171,21 @@ void set_best_child(node_type *node) {
   }
 }
 
+int child_number(int p) {
+  return p - (10*(p/10));
+}
+
+void print_unorderedness() {
+  for (int i = 0; i < TREE_DEPTH; i++) {
+    if (global_unorderedness_seq_n[i]) {
+      printf("seq u.o. (%d): %3.2lf\n", i, 
+	     global_unorderedness_seq_x[i]/global_unorderedness_seq_n[i]);
+    } else {
+      printf("seq u.o. (%d) zero\n", i);
+    }
+  }
+}
+
 int opposite(int m) {
   return (m==MAXNODE) ? MINNODE : MAXNODE;
 }
@@ -210,6 +225,11 @@ int main(int argc, char *argv[]) {
   }
   total_jobs = 0;
 
+  for (int i = 0; i < TREE_DEPTH; i++) {
+    global_unorderedness_seq_x[i] = TREE_WIDTH/2;
+    global_unorderedness_seq_n[i] = 1;
+  }
+
   int numWorkers = __cilkrts_get_nworkers();
   printf("CILK has %d worker threads\n", numWorkers);
 
@@ -239,6 +259,7 @@ int main(int argc, char *argv[]) {
   printf("Selects: %d\n", global_selects);
   printf("Leaf Evals: %d\n", global_leaf_eval);
   printf("Downward parallel aborted searches: %d\n", global_downward_aborts);
+  print_unorderedness();
   return 0;
 }
 
@@ -277,7 +298,7 @@ int start_mtdf() {
 
   do {
     if (g == lb) { b = g+1; } else { b = g; }
-    printf("MTD(%d)\n", b);
+    //    printf("MTD(%d)\n", b);
     g = start_alphabeta(b-1, b);
     if (g < b)   { ub = g;  } else { lb = g; }
   } while (lb < ub);

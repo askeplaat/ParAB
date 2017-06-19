@@ -1,3 +1,4 @@
+
 /*
  * parab.h
  *
@@ -10,11 +11,11 @@
  * defines
  */
 
-#define N_MACHINES 8
-#define TREE_WIDTH 8
-#define TREE_DEPTH 8
+#define N_MACHINES 20
+#define TREE_WIDTH 
+#define TREE_DEPTH 7
 
-#define SEQ_DEPTH 1
+#define SEQ_DEPTH 2
 
 
 #define N_JOBS 10000  // 100 jobs in job queue
@@ -31,6 +32,13 @@
 
 #define TRUE 1
 #define FALSE 0
+
+#define SAFETY_COUNTER_INIT 10000000
+
+
+
+// use Parallel Unorderedness to determine how much parallelism there should be scheduled
+#define PUO
 
 /*
  * structs
@@ -77,6 +85,8 @@ extern int n_par;
 extern int global_selects;
 extern int global_leaf_eval;
 extern int global_downward_aborts;
+extern double global_unorderedness_seq_x[TREE_DEPTH];
+extern int global_unorderedness_seq_n[TREE_DEPTH];
 
 /*
  * prototypes
@@ -87,6 +97,8 @@ int lock(pthread_mutex_t *mutex);
 int unlock(pthread_mutex_t *mutex);
 int start_mtdf();
 int start_alphabeta(int a, int b);
+int child_number(int p);
+int puo(node_type *node);
 void set_best_child(node_type *node);
 job_type *new_job(node_type *n, int t);
 node_type *new_leaf(node_type *p);

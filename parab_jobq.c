@@ -19,12 +19,29 @@
 // in effect a breadth first policy. not very efficient)
 // par should be near leaves. not near root
 int seq(node_type *node) {
+#ifdef PUO
+  return puo(node);
+#endif
   // this assumes jobs are distributed evenly over queues
   int machine = node->board;
   int depth = node->depth;  // if too far away from leaves then seq
   return top[machine] * 4 > N_JOBS || depth > SEQ_DEPTH;
 }
 
+
+double suo(int d) {
+  if (global_unorderedness_seq_n[d]) {
+    return global_unorderedness_seq_x[d]/global_unorderedness_seq_n[d];
+  } else {
+    return FALSE;
+  }
+}
+
+// true if current child number is larger than sequential unorderedness.
+// this prevents parallelism beyond where the sequential algorithm would venture
+int puo(node_type *node) {
+  return child_number(node->path) > suo(node->depth);
+}
 
 int not_empty(int top) {
   lock(&jobmutex);
@@ -74,7 +91,7 @@ void start_processes(int n_proc) {
     cilk_spawn do_work_queue(i);
   }
   cilk_sync;
-  printf("Root is solved. jobs: %d. root: <%d:%d> [%d:%d]\n", total_jobs, root->a, root->b, root->lb, root->ub);
+  //  printf("Root is solved. jobs: %d. root: <%d:%d> [%d:%d]\n", total_jobs, root->a, root->b, root->lb, root->ub);
 }
 
 void do_work_queue(int i) {
@@ -91,7 +108,8 @@ void do_work_queue(int i) {
   //  printf("M%d starting job queue\n", i);
   //  while (not_empty(top[i])) {
   //  while (live_node(root) && total_jobs > 0) {
-  while (live_node(root)) {
+  int safety_counter = SAFETY_COUNTER_INIT;
+  while (live_node(root) && safety_counter-- > 0) {
     //  while (not_empty_and_live_root()) {
     job_type *job = NULL;
 
@@ -100,9 +118,9 @@ void do_work_queue(int i) {
     unlock(&jobmutex);
 
     if (job) {
-      pthread_mutex_lock(&treemutex);
+      lock(&treemutex);
       process_job(job);
-      pthread_mutex_unlock(&treemutex);
+      unlock(&treemutex);
     }
 
     //    pthread_mutex_lock(&treemutex);
@@ -117,9 +135,15 @@ void do_work_queue(int i) {
       */
       schedule(root, SELECT);
     }
+
     //    pthread_mutex_unlock(&jobmutex);
     //    pthread_mutex_unlock(&treemutex);
 
+  }
+  if (safety_counter <= 0) {
+    printf("M:%d ERROR: safety triggered\n", i);
+  } else {
+    printf("M:%d safety counter: %d. root is at machine: %d\n", i, safety_counter, root->board);
   }
   //  printf("M%d Queue is empty or root is solved. jobs: %d. root: <%d:%d> \n", i, total_jobs, root->a, root->b);
 }
