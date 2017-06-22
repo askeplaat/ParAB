@@ -25,7 +25,7 @@ int seq(node_type *node) {
   // this assumes jobs are distributed evenly over queues
   int machine = node->board;
   int depth = node->depth;  // if too far away from leaves then seq
-  return top[machine] * 4 > N_JOBS || depth > SEQ_DEPTH;
+  return top[machine][SELECT] * 4 > N_JOBS || depth > SEQ_DEPTH;
 }
 
 
@@ -102,7 +102,7 @@ void do_work_queue(int i) {
   //  printf("My CILK worker number is %d\n", workerNum);
 
   // wait for jobs to arrive
-  while (empty(top[i]) && live_node(root)) {
+  while (empty(top[i][SELECT]) && live_node(root)) {
     // nothing
   }
   //  printf("M%d starting job queue\n", i);
@@ -113,12 +113,12 @@ void do_work_queue(int i) {
     //  while (not_empty_and_live_root()) {
     job_type *job = NULL;
 
-    lock(&jobmutex);
+    //    lock(&jobmutex);
     job = pull_job(i);
-    unlock(&jobmutex);
+    //    unlock(&jobmutex);
 
     if (job) {
-      //      lock(&treemutex);
+      //     lock(&treemutex);
       process_job(job);
       //      unlock(&treemutex);
     }
@@ -151,24 +151,27 @@ void do_work_queue(int i) {
 // which q? one per processor
 void add_to_queue(job_type *job) {
   int home_machine = job->node->board;
+  int jobt = job->type_of_job;
   if (home_machine >= N_MACHINES) {
     printf("ERROR: home_machine %d too big\n", home_machine);
     exit(1);
   }
-  if (top[home_machine] >= N_JOBS) {
-    printf("M%d Top:%d ERROR: queue full\n", home_machine, top[home_machine]);
+  if (top[home_machine][jobt] >= N_JOBS) {
+    printf("M%d Top:%d ERROR: queue full\n", home_machine, top[home_machine][jobt]);
     exit(1);
   }
   
-  lock(&jobmutex);
+  //  lock(&jobmutex);
   push_job(home_machine, job);
-  unlock(&jobmutex);
+  //  unlock(&jobmutex);
 }
 
 void push_job(int home_machine, job_type *job) {
   total_jobs++;
-  queue[home_machine][++(top[home_machine][job_type])][job_type] = job;
-  max_q_length[home_machine][job_type] = max(max_q_length[home_machine][job_type], top[home_machine][job_type]);
+  int jobt = job->type_of_job;
+  queue[home_machine][++(top[home_machine][jobt])][jobt] = job;
+  max_q_length[home_machine][jobt] = 
+    max(max_q_length[home_machine][jobt], top[home_machine][jobt]);
 #undef PRINT_PUSHES
 #ifdef PRINT_PUSHES
   if (seq(job->node)) {
@@ -177,32 +180,36 @@ void push_job(int home_machine, job_type *job) {
   printf("    M%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
 	 job->node->board, job->node->path, 
 	 job->node->maxormin==MAXNODE?"+":"-", 
-	 job->node->board, top[job->node->board][job_type], job->type_of_job,
+	 job->node->board, top[job->node->board][jobt], job->type_of_job,
 	 job->node->a, job->node->b);
 #endif
-  sort_queue(queue[home_machine], top[home_machine]);
+  //  sort_queue(queue[home_machine], top[home_machine]);
   //  print_queue(queue[home_machine], top[home_machine]);
 }
 
 job_type *pull_job(int home_machine) {
   //  printf("M%d Pull   ", home_machine);
-  if (top[home_machine][job_type] <= 0) {
-    //    printf("M%d PULL ERROR\n", home_machine);
-    return NULL;
-  }
-  total_jobs--;
-  job_type *job = queue[home_machine][top[home_machine][job_type]--][job_type];
+  int jobt = BOUND_DOWN;
+  // first try bound_down, then try update, then try select
+  while (jobt > 0) {
+    if (top[home_machine][jobt] > 0) {
+      total_jobs--;
+      job_type *job = queue[home_machine][top[home_machine][jobt]--][jobt];
 #undef PRINT_PULLS
 #ifdef PRINT_PULLS
-  printf("    M%d P:%d %s TOP[%d]:%d PULL  [%d] <%d:%d> \n", 
-	 job->node->board, job->node->path, 
-	 job->node->maxormin==MAXNODE?"+":"-", 
-	 job->node->board, top[job->node->board][job_type], job->type_of_job,
-	 job->node->a, job->node->b);
+      printf("    M%d P:%d %s TOP[%d]:%d PULL  [%d] <%d:%d> \n", 
+	     job->node->board, job->node->path, 
+	     job->node->maxormin==MAXNODE?"+":"-", 
+	     job->node->board, top[job->node->board][jobt], job->type_of_job,
+	     job->node->a, job->node->b);
 #endif
-  return job;
+      return job;
+    }
+    jobt --;
+  }
 }
 
+/*
 // swap the pointers to jobs in the job array
 void swap_jobs(job_type *q[], int t1, int t2) {
   job_type *tmp = q[t1];
@@ -234,6 +241,7 @@ void sort_queue(job_type *q[], int t) {
     swap_jobs(q, top+1, top);
   }
 }
+*/
 
 // there is a new bound. update the selects in the job queue 
 int update_selects_with_bound(node_type *node) {
@@ -246,8 +254,8 @@ int update_selects_with_bound(node_type *node) {
   int home_machine = node->board;
   int continue_update = 0;
   // find all the entries for this node in the job queue
-  for (int i = 0; i < top[home_machine]; i++) {
-    job_type *job = queue[home_machine][i];
+  for (int i = 0; i < top[home_machine][SELECT]; i++) {
+    job_type *job = queue[home_machine][i][SELECT];
     if (job->node == node && job->type_of_job == SELECT) {
       //      since node == node I do not really have to update the bounds, they are already updated....
       continue_update |= job->node->a < node->a;

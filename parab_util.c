@@ -22,10 +22,14 @@ job_type *new_job(node_type *n, int t) {
 }
 
 int lock(pthread_mutex_t *mutex) {
+#ifdef LOCKS
   pthread_mutex_lock(mutex);
+#endif
 }
 int unlock(pthread_mutex_t *mutex) {
+#ifdef LOCKS
   pthread_mutex_unlock(mutex);
+#endif
 }
 
 /************************
@@ -220,8 +224,10 @@ int main(int argc, char *argv[]) {
   }
   printf("Hello from ParAB with %d machine%s and %d children in par in queue\n", N_MACHINES, N_MACHINES==1?"":"s", n_par);
   for (int i = 0; i < N_MACHINES; i++) {
-    top[i] = 0;
-    max_q_length[i] = 0;
+    for (int j = 1; j < JOB_TYPES; j++) {
+      top[i][j] = 0;
+      max_q_length[i][j] = 0;
+    }
   }
   total_jobs = 0;
 
@@ -271,7 +277,9 @@ void create_tree(int d) {
 
 void print_q_stats() {
   for (int i=0; i < N_MACHINES; i++) {
-    printf("Max Q length [%d]\n", max_q_length[i], i);
+    for (int j=1; j < JOB_TYPES; j++) {
+      printf("Max Q length %d [%d,%d]\n", max_q_length[i][j], i, j);
+    }
   }
 }
 

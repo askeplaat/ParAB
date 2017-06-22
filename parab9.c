@@ -62,12 +62,12 @@
  **************************/
 
 node_type *root = NULL;
-job_type *queue[N_MACHINES][N_JOBS];
-int top[N_MACHINES];
+job_type *queue[N_MACHINES][N_JOBS][JOB_TYPES];
+int top[N_MACHINES][JOB_TYPES];
 int total_jobs = 0;
 pthread_mutex_t jobmutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t treemutex = PTHREAD_MUTEX_INITIALIZER;
-int max_q_length[N_MACHINES];
+int max_q_length[N_MACHINES][JOB_TYPES];
 int n_par = 1;
 
 int global_selects = 0;

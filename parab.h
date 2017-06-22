@@ -11,8 +11,8 @@
  * defines
  */
 
-#define N_MACHINES 20
-#define TREE_WIDTH 
+#define N_MACHINES 10
+#define TREE_WIDTH 7
 #define TREE_DEPTH 7
 
 #define SEQ_DEPTH 2
@@ -23,9 +23,10 @@
 #define INFTY  99999
 
 #define SELECT 1
-#define PLAYOUT 3
-#define UPDATE 4
-#define BOUND_DOWN 5
+#define PLAYOUT 2
+#define UPDATE 3
+#define BOUND_DOWN 4
+#define JOB_TYPES (BOUND_DOWN+1)
 
 #define MAXNODE 1
 #define MINNODE 2
@@ -33,12 +34,14 @@
 #define TRUE 1
 #define FALSE 0
 
-#define SAFETY_COUNTER_INIT 10000000
+#define SAFETY_COUNTER_INIT 50000000
 
 
 
 // use Parallel Unorderedness to determine how much parallelism there should be scheduled
-#define PUO
+#undef PUO
+#define LOCKS
+
 
 /*
  * structs
@@ -75,12 +78,12 @@ typedef struct job job_type;
  */
 
 extern node_type *root;
-extern job_type *queue[N_MACHINES][N_JOBS];
-extern int top[N_MACHINES];
+extern job_type *queue[N_MACHINES][N_JOBS][JOB_TYPES];
+extern int top[N_MACHINES][JOB_TYPES];
 extern int total_jobs;
 extern pthread_mutex_t jobmutex;
 extern pthread_mutex_t treemutex;
-extern int max_q_length[N_MACHINES];
+extern int max_q_length[N_MACHINES][JOB_TYPES];
 extern int n_par;
 extern int global_selects;
 extern int global_leaf_eval;
