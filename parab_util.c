@@ -228,6 +228,10 @@ int main(int argc, char *argv[]) {
       top[i][j] = 0;
       max_q_length[i][j] = 0;
     }
+    pthread_mutex_init(&jobmutex[i], NULL);
+    pthread_cond_init(&job_available[i], NULL);
+    global_no_jobs[i] = 0;
+    //    jobmutex[i] = PTHREAD_MUTEX_INITIALIZER;
   }
   total_jobs = 0;
 
@@ -266,6 +270,9 @@ int main(int argc, char *argv[]) {
   printf("Leaf Evals: %d\n", global_leaf_eval);
   printf("Downward parallel aborted searches: %d\n", global_downward_aborts);
   print_unorderedness();
+  for (int i = 0; i < N_MACHINES; i++) {
+    printf("M%d: no jobs: %d\n", i, global_no_jobs[i]);
+  }
   return 0;
 }
 

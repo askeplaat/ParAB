@@ -65,14 +65,18 @@ node_type *root = NULL;
 job_type *queue[N_MACHINES][N_JOBS][JOB_TYPES];
 int top[N_MACHINES][JOB_TYPES];
 int total_jobs = 0;
-pthread_mutex_t jobmutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t jobmutex[N_MACHINES];
+pthread_cond_t job_available[N_MACHINES];
 pthread_mutex_t treemutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t donemutex = PTHREAD_MUTEX_INITIALIZER;
 int max_q_length[N_MACHINES][JOB_TYPES];
 int n_par = 1;
 
 int global_selects = 0;
 int global_leaf_eval = 0;
 int global_downward_aborts = 0;
+int global_no_jobs[N_MACHINES];
+int global_done = FALSE;
 
 /* statistics to track which child caused cutoffs at CUT nodes, measure for the orderedness of the tree */
 double global_unorderedness_seq_x[TREE_DEPTH];

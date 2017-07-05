@@ -25,7 +25,7 @@ int seq(node_type *node) {
   // this assumes jobs are distributed evenly over queues
   int machine = node->board;
   int depth = node->depth;  // if too far away from leaves then seq
-  return top[machine] * 4 > N_JOBS || depth > SEQ_DEPTH;
+  return top[machine][SELECT] * 4 > N_JOBS || depth > SEQ_DEPTH;
 }
 
 
@@ -43,43 +43,45 @@ int puo(node_type *node) {
   return child_number(node->path) > suo(node->depth);
 }
 
-int not_empty(int top) {
-  lock(&jobmutex);
+int not_empty(int top, int home) {
+  lock(&jobmutex[home]);
   int t = top > 0;
-  unlock(&jobmutex);
+  unlock(&jobmutex[home]);
   return t;
 }
-int empty(int top) {
-  return !not_empty(top);
+
+int empty(int top, int home) {
+  return !not_empty(top, home);
+}
+
+int empty_jobs(int home) {
+  return top[home][SELECT] < 1 && 
+    top[home][UPDATE] < 1 &&
+    top[home][BOUND_DOWN] < 1 &&
+    top[home][PLAYOUT] < 1;
 }
 
 int not_empty_and_live_root() {
-  lock(&jobmutex);
+  int home = root->board;
+  lock(&jobmutex[home]);
   int e =  total_jobs > 0 && live_node(root);
-  unlock(&jobmutex);
+  unlock(&jobmutex[home]);
   return e;
 }
 
 int all_empty_and_live_root() {
-  lock(&jobmutex);
+  int home = root->board;
+  lock(&jobmutex[home]);
   int e =  total_jobs <= 0 && live_node(root);
-  unlock(&jobmutex);
+  unlock(&jobmutex[home]);
   return e;
 }
 
 void schedule(node_type *node, int t) {
-  if (node/* && !seq(node->board)*/) {
-    /*
-here we are throttling correctness.
-  seq for speculative opar (extrsa selects) is fine, but losing updates is not fine. it forgets bounds that should propagate to the root
-    */
-    job_type *job = new_job(node, t);
+  if (node) {
     // send to remote machine
-    add_to_queue(job);
-  } else {
-    //    printf("schedule: NODE to schedule in job queue is NULL. Type: %d\n", 
-    //	   t);
-  }
+    add_to_queue(new_job(node, t));
+  } 
 }
 
 void start_processes(int n_proc) {
@@ -100,32 +102,119 @@ void do_work_queue(int i) {
 
   int workerNum = __cilkrts_get_worker_number();
   //  printf("My CILK worker number is %d\n", workerNum);
+  int safety_counter = SAFETY_COUNTER_INIT;
 
+  /*
   // wait for jobs to arrive
-  while (empty(top[i]) && live_node(root)) {
+  //  while (empty(top[i][SELECT], i) && live_node(root)) {
     // nothing
-  }
+  //}
   //  printf("M%d starting job queue\n", i);
   //  while (not_empty(top[i])) {
   //  while (live_node(root) && total_jobs > 0) {
-  int safety_counter = SAFETY_COUNTER_INIT;
+
   while (live_node(root) && safety_counter-- > 0) {
     //  while (not_empty_and_live_root()) {
-    job_type *job = NULL;
 
-    lock(&jobmutex);
+    lock(&(jobmutex[i]));
+    while (empty_jobs(i) && live_node(root)) {
+      printf("M:%d Waiting %d:%d:%d:%d. root: <%d:%d>@%d. total_jobs: %d\n", i, 
+	     top[i][SELECT], top[i][PLAYOUT], 
+	     top[i][UPDATE], top[i][BOUND_DOWN], 
+	     root->a, root->b, root->board, total_jobs);
+      pthread_cond_wait(&job_available[i], &jobmutex[i]);
+    }
     job = pull_job(i);
-    unlock(&jobmutex);
+    unlock(&(jobmutex[i]));
 
     if (job) {
-      //      lock(&treemutex);
+      printf("M:%d Got %d [%d]\n", i, job->node->path, job->type_of_job);
+           lock(&treemutex);
       process_job(job);
-      //      unlock(&treemutex);
+            unlock(&treemutex);
     }
 
     //    pthread_mutex_lock(&treemutex);
     //    pthread_mutex_lock(&jobmutex);
-    if (all_empty_and_live_root()) {
+    */
+    /*
+hmm. in this way the spawning of selects for the root is blocked if the condwait is waiting on a job for this machine.
+    if (all_empty_and_live_root()) { hmm. deze zou alleen door de machine met de root gedaan moeten worden. nu doen alle machines deze test. dan kunnen er wel heel veel select.roots tegelijk gescheduled worden. niet nodig.
+
+      het is dus mogelijk dat nu nog root live is, je hier in komt, de root closed wordt, de andere machine stopt, en je dan een schedu;ed. moet deze test+schedule ook niet atomair?
+uittekenen van mogelijke interleavings.
+																	  condities: live_root, empty_jobs
+																	  algoritme: zolang live_root, schedule selects.
+																	  of eigenlijk: zolang live_root && empty_jobs, dan schedule selects. En dat is ingewikkeld in deze code, want hier wordt op twee plekken gechecked voor live_root && empty jobs. Los van elkaar, niet atomair.
+
+Ik moet deze while loop herontwerpen
+    */
+  while (safety_counter-- > 0 && !global_done) { 
+    job_type *job = NULL;
+      
+    // kan dit zonder locks?
+    if (i == root->board && empty_jobs(i) && !global_done)  {
+      schedule(root, SELECT); // local schedule, q already locked
+    }
+    
+    lock(&jobmutex[i]);
+    while (empty_jobs(i) && !global_done) {
+      if (i != root->board)  {
+	//	printf("M:%d Waiting\n", i);
+	pthread_cond_wait(&job_available[i], &jobmutex[i]); // root closed must release block 
+      }
+    } 
+    job = pull_job(i);
+    unlock(&(jobmutex[i]));
+
+    if (job) {
+      //lock(&treemutex);
+      process_job(job);
+      //unlock(&treemutex);
+      if (i == root->board && !live_node(root)) {
+	lock(&donemutex);
+	global_done = TRUE;
+
+	// root is solved. release all condition variables
+	for (int i = 0; i < N_MACHINES; i++) {
+	  pthread_cond_broadcast(&job_available[i]);
+	}
+
+	unlock(&donemutex);
+	break;
+      } 
+    }
+    lock(&donemutex);
+    if (global_done) {
+      unlock(&donemutex);
+      break;
+    }
+    unlock(&donemutex);
+    
+  } // while true
+    /*
+push signals and root_closed broadcasts
+			    //			    while (me.not.jobs_empty) {
+			      job = me.pull_job();
+			      process(job);
+			      //			    }
+			      just have pull job continue to busy pull, no need to block on an empty queue. unless we can put the spawning of the root-selects in the empty-test, so that that continues to happen, and is not blocked on the emptyness off my queue
+
+me is in a loop for pulling jobs and processing them and if no jobs then block waiting for jobs to appear or stop if root is closed
+root.home is in a loop of pulling jobs and processing them and if no jobs then schedule a select for the root or stop if root is closed
+
+			    if (root.dead) {
+			      break;
+			    }
+			    if (me==root.home) { 
+			      while (home.jobs_empty) {
+				home.push_job(select, root);
+			      }
+			    }
+
+			  }
+
+    */
       /*
       printf("* live root: %d, ab:<%d:%d>, lbub:<%d:%d>, wawb:<%d:%d>\n", 
 	     live_node(root), 
@@ -133,76 +222,97 @@ void do_work_queue(int i) {
 	     root->lb, root->ub, 
 	     root->wa, root->wb);
       */
-      schedule(root, SELECT);
-    }
+    //      schedule(root, SELECT);
+    //}
 
     //    pthread_mutex_unlock(&jobmutex);
     //    pthread_mutex_unlock(&treemutex);
 
-  }
+    //  } // while
   if (safety_counter <= 0) {
     printf("M:%d ERROR: safety triggered\n", i);
   } else {
     printf("M:%d safety counter: %d. root is at machine: %d\n", i, safety_counter, root->board);
   }
+
+  // root is solved. release all condition variables
+  for (int i = 0; i < N_MACHINES; i++) {
+    pthread_cond_broadcast(&job_available[i]);
+  }
+
   //  printf("M%d Queue is empty or root is solved. jobs: %d. root: <%d:%d> \n", i, total_jobs, root->a, root->b);
 }
 
 // which q? one per processor
 void add_to_queue(job_type *job) {
   int home_machine = job->node->board;
+  int jobt = job->type_of_job;
   if (home_machine >= N_MACHINES) {
     printf("ERROR: home_machine %d too big\n", home_machine);
     exit(1);
   }
-  if (top[home_machine] >= N_JOBS) {
-    printf("M%d Top:%d ERROR: queue full\n", home_machine, top[home_machine]);
+
+  lock(&(jobmutex[home_machine]));
+  if (top[home_machine][jobt] >= N_JOBS) {
+    printf("M%d Top:%d ERROR: queue [%d] full\n", home_machine, top[home_machine][jobt], jobt);
     exit(1);
   }
   
-  lock(&jobmutex);
+  if (empty_jobs(home_machine)) {
+    //    printf("Signalling %d for %d [%d]\n", home_machine, job->node->path, job->type_of_job);
+    pthread_cond_signal(&job_available[home_machine]);
+  }
   push_job(home_machine, job);
-  unlock(&jobmutex);
+  unlock(&(jobmutex[home_machine]));
 }
 
 void push_job(int home_machine, job_type *job) {
   total_jobs++;
-  queue[home_machine][++(top[home_machine][job_type])][job_type] = job;
-  max_q_length[home_machine][job_type] = max(max_q_length[home_machine][job_type], top[home_machine][job_type]);
+  int jobt = job->type_of_job;
+  //int jobt = SELECT;
+  queue[home_machine][++(top[home_machine][jobt])][jobt] = job;
+  max_q_length[home_machine][jobt] = 
+    max(max_q_length[home_machine][jobt], top[home_machine][jobt]);
 #undef PRINT_PUSHES
 #ifdef PRINT_PUSHES
   if (seq(job->node)) {
     //        printf("ERROR: pushing job while in seq mode ");
   }
-  printf("    M%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
+  printf("    M:%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
 	 job->node->board, job->node->path, 
 	 job->node->maxormin==MAXNODE?"+":"-", 
-	 job->node->board, top[job->node->board][job_type], job->type_of_job,
+	 job->node->board, top[job->node->board][jobt], job->type_of_job,
 	 job->node->a, job->node->b);
 #endif
-  sort_queue(queue[home_machine], top[home_machine]);
+  //  sort_queue(queue[home_machine], top[home_machine]);
   //  print_queue(queue[home_machine], top[home_machine]);
 }
 
 job_type *pull_job(int home_machine) {
   //  printf("M%d Pull   ", home_machine);
-  if (top[home_machine][job_type] <= 0) {
-    //    printf("M%d PULL ERROR\n", home_machine);
-    return NULL;
-  }
-  total_jobs--;
-  job_type *job = queue[home_machine][top[home_machine][job_type]--][job_type];
+  int jobt = BOUND_DOWN;
+  // first try bound_down, then try update, then try select
+  while (jobt > 0) {
+    if (top[home_machine][jobt] > 0) {
+      total_jobs--;
+      job_type *job = queue[home_machine][top[home_machine][jobt]--][jobt];
 #undef PRINT_PULLS
 #ifdef PRINT_PULLS
-  printf("    M%d P:%d %s TOP[%d]:%d PULL  [%d] <%d:%d> \n", 
-	 job->node->board, job->node->path, 
-	 job->node->maxormin==MAXNODE?"+":"-", 
-	 job->node->board, top[job->node->board][job_type], job->type_of_job,
-	 job->node->a, job->node->b);
+      printf("    M%d P:%d %s TOP[%d]:%d PULL  [%d] <%d:%d> \n", 
+	     job->node->board, job->node->path, 
+	     job->node->maxormin==MAXNODE?"+":"-", 
+	     job->node->board, top[job->node->board][jobt], job->type_of_job,
+	     job->node->a, job->node->b);
 #endif
-  return job;
+      return job;
+    }
+    jobt --;
+  }
+  global_no_jobs[home_machine]++;
+  return NULL;
 }
 
+/*
 // swap the pointers to jobs in the job array
 void swap_jobs(job_type *q[], int t1, int t2) {
   job_type *tmp = q[t1];
@@ -234,6 +344,7 @@ void sort_queue(job_type *q[], int t) {
     swap_jobs(q, top+1, top);
   }
 }
+*/
 
 // there is a new bound. update the selects in the job queue 
 int update_selects_with_bound(node_type *node) {
@@ -246,8 +357,8 @@ int update_selects_with_bound(node_type *node) {
   int home_machine = node->board;
   int continue_update = 0;
   // find all the entries for this node in the job queue
-  for (int i = 0; i < top[home_machine]; i++) {
-    job_type *job = queue[home_machine][i];
+  for (int i = 0; i < top[home_machine][SELECT]; i++) {
+    job_type *job = queue[home_machine][i][SELECT];
     if (job->node == node && job->type_of_job == SELECT) {
       //      since node == node I do not really have to update the bounds, they are already updated....
       continue_update |= job->node->a < node->a;

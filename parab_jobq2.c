@@ -43,43 +43,45 @@ int puo(node_type *node) {
   return child_number(node->path) > suo(node->depth);
 }
 
-int not_empty(int top) {
-  lock(&jobmutex);
+int not_empty(int top, int home) {
+  lock(&jobmutex[home]);
   int t = top > 0;
-  unlock(&jobmutex);
+  unlock(&jobmutex[home]);
   return t;
 }
-int empty(int top) {
-  return !not_empty(top);
+
+int empty(int top, int home) {
+  return !not_empty(top, home);
+}
+
+int empty_jobs(int home) {
+  return top[home][SELECT] < 1 && 
+    top[home][UPDATE] < 1 &&
+    top[home][BOUND_DOWN] < 1 &&
+    top[home][PLAYOUT] < 1;
 }
 
 int not_empty_and_live_root() {
-  lock(&jobmutex);
+  int home = root->board;
+  lock(&jobmutex[home]);
   int e =  total_jobs > 0 && live_node(root);
-  unlock(&jobmutex);
+  unlock(&jobmutex[home]);
   return e;
 }
 
 int all_empty_and_live_root() {
-  lock(&jobmutex);
+  int home = root->board;
+  lock(&jobmutex[home]);
   int e =  total_jobs <= 0 && live_node(root);
-  unlock(&jobmutex);
+  unlock(&jobmutex[home]);
   return e;
 }
 
 void schedule(node_type *node, int t) {
-  if (node/* && !seq(node->board)*/) {
-    /*
-here we are throttling correctness.
-  seq for speculative opar (extrsa selects) is fine, but losing updates is not fine. it forgets bounds that should propagate to the root
-    */
-    job_type *job = new_job(node, t);
+  if (node) {
     // send to remote machine
-    add_to_queue(job);
-  } else {
-    //    printf("schedule: NODE to schedule in job queue is NULL. Type: %d\n", 
-    //	   t);
-  }
+    add_to_queue(new_job(node, t));
+  } 
 }
 
 void start_processes(int n_proc) {
@@ -102,9 +104,9 @@ void do_work_queue(int i) {
   //  printf("My CILK worker number is %d\n", workerNum);
 
   // wait for jobs to arrive
-  while (empty(top[i][SELECT]) && live_node(root)) {
+  //  while (empty(top[i][SELECT], i) && live_node(root)) {
     // nothing
-  }
+  //}
   //  printf("M%d starting job queue\n", i);
   //  while (not_empty(top[i])) {
   //  while (live_node(root) && total_jobs > 0) {
@@ -113,19 +115,34 @@ void do_work_queue(int i) {
     //  while (not_empty_and_live_root()) {
     job_type *job = NULL;
 
-    //    lock(&jobmutex);
+    lock(&(jobmutex[i]));
+    while (empty_jobs(i) && live_node(root)) {
+      printf("M:%d Waiting %d:%d:%d:%d. root: <%d:%d>@%d. total_jobs: %d\n", i, 
+	     top[i][SELECT], top[i][PLAYOUT], 
+	     top[i][UPDATE], top[i][BOUND_DOWN], 
+	     root->a, root->b, root->board, total_jobs);
+      pthread_cond_wait(&job_available[i], &jobmutex[i]);
+    }
     job = pull_job(i);
-    //    unlock(&jobmutex);
+    unlock(&(jobmutex[i]));
 
     if (job) {
-      //     lock(&treemutex);
+      printf("M:%d Got %d [%d]\n", i, job->node->path, job->type_of_job);
+           lock(&treemutex);
       process_job(job);
-      //      unlock(&treemutex);
+            unlock(&treemutex);
     }
 
     //    pthread_mutex_lock(&treemutex);
     //    pthread_mutex_lock(&jobmutex);
     if (all_empty_and_live_root()) {
+      het is dus mogelijk dat nu nog root live is, je hier in komt, de root closed wordt, de andere machine stopt, en je dan een schedu;ed. moet deze test+schedule ook niet atomair?
+uittekenen van mogelijke interleavings.
+																	  condities: live_root, empty_jobs
+																	  algoritme: zolang live_root, schedule selects.
+																	  of eigenlijk: zolang live_root && empty_jobs, dan schedule selects. En dat is ingewikkeld in deze code, want hier wordt op twee plekken gechecked voor live_root && empty jobs. Los van elkaar, niet atomair.
+
+Ik moet deze while loop herontwerpen
       /*
       printf("* live root: %d, ab:<%d:%d>, lbub:<%d:%d>, wawb:<%d:%d>\n", 
 	     live_node(root), 
@@ -139,12 +156,18 @@ void do_work_queue(int i) {
     //    pthread_mutex_unlock(&jobmutex);
     //    pthread_mutex_unlock(&treemutex);
 
-  }
+  } // while
   if (safety_counter <= 0) {
     printf("M:%d ERROR: safety triggered\n", i);
   } else {
     printf("M:%d safety counter: %d. root is at machine: %d\n", i, safety_counter, root->board);
   }
+
+  // root is solved. release all condition variables
+  for (int i = 0; i < N_MACHINES; i++) {
+    pthread_cond_broadcast(&job_available[i]);
+  }
+
   //  printf("M%d Queue is empty or root is solved. jobs: %d. root: <%d:%d> \n", i, total_jobs, root->a, root->b);
 }
 
@@ -156,14 +179,19 @@ void add_to_queue(job_type *job) {
     printf("ERROR: home_machine %d too big\n", home_machine);
     exit(1);
   }
+
+  lock(&(jobmutex[home_machine]));
   if (top[home_machine][jobt] >= N_JOBS) {
     printf("M%d Top:%d ERROR: queue full\n", home_machine, top[home_machine][jobt]);
     exit(1);
   }
   
-  //  lock(&jobmutex);
+  if (empty_jobs(home_machine)) {
+    printf("Signalling %d for %d [%d]\n", home_machine, job->node->path, job->type_of_job);
+    pthread_cond_signal(&job_available[home_machine]);
+  }
   push_job(home_machine, job);
-  //  unlock(&jobmutex);
+  unlock(&(jobmutex[home_machine]));
 }
 
 void push_job(int home_machine, job_type *job) {
@@ -177,7 +205,7 @@ void push_job(int home_machine, job_type *job) {
   if (seq(job->node)) {
     //        printf("ERROR: pushing job while in seq mode ");
   }
-  printf("    M%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
+  printf("    M:%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
 	 job->node->board, job->node->path, 
 	 job->node->maxormin==MAXNODE?"+":"-", 
 	 job->node->board, top[job->node->board][jobt], job->type_of_job,
@@ -207,6 +235,8 @@ job_type *pull_job(int home_machine) {
     }
     jobt --;
   }
+  global_no_jobs[home_machine]++;
+  return NULL;
 }
 
 /*

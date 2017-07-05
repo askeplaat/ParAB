@@ -11,14 +11,14 @@
  * defines
  */
 
-#define N_MACHINES 10
-#define TREE_WIDTH 7
-#define TREE_DEPTH 7
+#define N_MACHINES 20
+#define TREE_WIDTH 8
+#define TREE_DEPTH 6
 
-#define SEQ_DEPTH 2
+#define SEQ_DEPTH 1
+ 
 
-
-#define N_JOBS 10000  // 100 jobs in job queue
+#define N_JOBS 1000000  // 100 jobs in job queue
 
 #define INFTY  99999
 
@@ -81,8 +81,10 @@ extern node_type *root;
 extern job_type *queue[N_MACHINES][N_JOBS][JOB_TYPES];
 extern int top[N_MACHINES][JOB_TYPES];
 extern int total_jobs;
-extern pthread_mutex_t jobmutex;
+extern pthread_mutex_t jobmutex[N_MACHINES];
+extern pthread_cond_t job_available[N_MACHINES];
 extern pthread_mutex_t treemutex;
+extern pthread_mutex_t donemutex;
 extern int max_q_length[N_MACHINES][JOB_TYPES];
 extern int n_par;
 extern int global_selects;
@@ -90,6 +92,8 @@ extern int global_leaf_eval;
 extern int global_downward_aborts;
 extern double global_unorderedness_seq_x[TREE_DEPTH];
 extern int global_unorderedness_seq_n[TREE_DEPTH];
+extern int global_no_jobs[N_MACHINES];
+extern int global_done;
 
 /*
  * prototypes
@@ -135,8 +139,8 @@ int dead_node_lbub(node_type *node);
 void start_processes(int n_proc);
 void do_work_queue(int i);
 int not_empty_and_live_root();
-int empty(int top);
-int not_empty(int top);
+int empty(int top, int home);
+int not_empty(int top, int home);
 void add_to_queue(job_type *job);
 void process_job(job_type *job);
 void schedule(node_type *node, int t);
