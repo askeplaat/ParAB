@@ -32,6 +32,40 @@ int unlock(pthread_mutex_t *mutex) {
 #endif
 }
 
+int lock_node(node_type *node) {
+  if (node) {
+    lock(&node->nodelock);
+    if (node->parent) {
+      lock(&node->parent->nodelock);
+    }
+
+    if (0&&node->children) {
+      for (int ch = 0; ch < node->n_children && node->children[ch]; ch++) {
+	node_type *child = node->children[ch]; 
+	printf("l %d ", node->path);
+	lock(&child->nodelock);
+	printf(" +\n", node->path);
+      }
+    }
+  }
+}
+
+int unlock_node(node_type *node) {
+  if (node) {
+    unlock(&node->nodelock);
+    if (node->parent) {
+      unlock(&node->parent->nodelock);
+    }
+
+    if (0&&node->children) {
+      for (int ch = 0; ch < node->n_children && node->children[ch]; ch++) {
+	node_type *child = node->children[ch]; 
+	unlock(&child->nodelock);
+      }
+    }
+  }
+}
+
 /************************
  *** NODE             ***
  ************************/
@@ -67,6 +101,7 @@ node_type *new_leaf(node_type *p) {
   if (p) {
     node->depth = p->depth - 1;
   }
+  pthread_mutex_init(&node->nodelock, NULL);  
   return node; // return to where? return a pointer to our address space to a different machine's address space?
 }
 
@@ -265,14 +300,16 @@ int main(int argc, char *argv[]) {
   printf("Done. value: %d\n", g);
 
   //  print_tree(root, min(3, TREE_DEPTH));
-  print_q_stats();
+  //  print_q_stats();
   printf("Selects: %d\n", global_selects);
   printf("Leaf Evals: %d\n", global_leaf_eval);
   printf("Downward parallel aborted searches: %d\n", global_downward_aborts);
-  print_unorderedness();
+  //  print_unorderedness();
+  /*
   for (int i = 0; i < N_MACHINES; i++) {
     printf("M%d: no jobs: %d\n", i, global_no_jobs[i]);
   }
+  */
   return 0;
 }
 
@@ -313,7 +350,7 @@ int start_mtdf() {
 
   do {
     if (g == lb) { b = g+1; } else { b = g; }
-    //    printf("MTD(%d)\n", b);
+    printf("MTD(%d)\n", b);
     g = start_alphabeta(b-1, b);
     if (g < b)   { ub = g;  } else { lb = g; }
   } while (lb < ub);

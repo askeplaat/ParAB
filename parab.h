@@ -11,8 +11,8 @@
  * defines
  */
 
-#define N_MACHINES 20
-#define TREE_WIDTH 8
+#define N_MACHINES 3
+#define TREE_WIDTH 4
 #define TREE_DEPTH 6
 
 #define SEQ_DEPTH 1
@@ -39,7 +39,7 @@
 
 
 // use Parallel Unorderedness to determine how much parallelism there should be scheduled
-#undef PUO
+#define PUO
 #define LOCKS
 
 
@@ -63,6 +63,7 @@ typedef struct node {
   int  maxormin;
   int depth;
   int path;
+  pthread_mutex_t nodelock;
 } nt;
 
 struct job {
@@ -102,6 +103,8 @@ extern int global_done;
 void print_q_stats();
 int lock(pthread_mutex_t *mutex);
 int unlock(pthread_mutex_t *mutex);
+int lock_node(node_type *n);
+int unlock_node(node_type *n);
 int start_mtdf();
 int start_alphabeta(int a, int b);
 int child_number(int p);

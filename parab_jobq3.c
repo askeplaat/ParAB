@@ -154,7 +154,12 @@ Ik moet deze while loop herontwerpen
       
     // kan dit zonder locks?
     if (i == root->board && empty_jobs(i) && !global_done)  {
+      //does it schedule one or does it keep on pushing jobs in the q?
+      //      printf("root schedule: ");
       schedule(root, SELECT); // local schedule, q already locked
+      if (empty_jobs(i)) {
+	printf("ERROR: job queue still empty after scheduling root\n");
+      }
     }
     
     lock(&jobmutex[i]);
@@ -168,9 +173,9 @@ Ik moet deze while loop herontwerpen
     unlock(&(jobmutex[i]));
 
     if (job) {
-      //lock(&treemutex);
-      process_job(job);
-      //unlock(&treemutex);
+      lock_node(job->node);
+      process_job(job); 
+      unlock_node(job->node);
       if (i == root->board && !live_node(root)) {
 	lock(&donemutex);
 	global_done = TRUE;
@@ -192,29 +197,6 @@ Ik moet deze while loop herontwerpen
     unlock(&donemutex);
     
   } // while true
-    /*
-push signals and root_closed broadcasts
-			    //			    while (me.not.jobs_empty) {
-			      job = me.pull_job();
-			      process(job);
-			      //			    }
-			      just have pull job continue to busy pull, no need to block on an empty queue. unless we can put the spawning of the root-selects in the empty-test, so that that continues to happen, and is not blocked on the emptyness off my queue
-
-me is in a loop for pulling jobs and processing them and if no jobs then block waiting for jobs to appear or stop if root is closed
-root.home is in a loop of pulling jobs and processing them and if no jobs then schedule a select for the root or stop if root is closed
-
-			    if (root.dead) {
-			      break;
-			    }
-			    if (me==root.home) { 
-			      while (home.jobs_empty) {
-				home.push_job(select, root);
-			      }
-			    }
-
-			  }
-
-    */
       /*
       printf("* live root: %d, ab:<%d:%d>, lbub:<%d:%d>, wawb:<%d:%d>\n", 
 	     live_node(root), 
@@ -222,17 +204,11 @@ root.home is in a loop of pulling jobs and processing them and if no jobs then s
 	     root->lb, root->ub, 
 	     root->wa, root->wb);
       */
-    //      schedule(root, SELECT);
-    //}
 
-    //    pthread_mutex_unlock(&jobmutex);
-    //    pthread_mutex_unlock(&treemutex);
-
-    //  } // while
   if (safety_counter <= 0) {
     printf("M:%d ERROR: safety triggered\n", i);
   } else {
-    printf("M:%d safety counter: %d. root is at machine: %d\n", i, safety_counter, root->board);
+    //    printf("M:%d safety counter: %d. root is at machine: %d\n", i, safety_counter, root->board);
   }
 
   // root is solved. release all condition variables
@@ -258,11 +234,12 @@ void add_to_queue(job_type *job) {
     exit(1);
   }
   
+  push_job(home_machine, job);
+
   if (empty_jobs(home_machine)) {
     //    printf("Signalling %d for %d [%d]\n", home_machine, job->node->path, job->type_of_job);
     pthread_cond_signal(&job_available[home_machine]);
   }
-  push_job(home_machine, job);
   unlock(&(jobmutex[home_machine]));
 }
 
