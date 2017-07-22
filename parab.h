@@ -11,9 +11,9 @@
  * defines
  */
 
-#define N_MACHINES 3
-#define TREE_WIDTH 4
-#define TREE_DEPTH 6
+#define N_MACHINES 2
+#define TREE_WIDTH 2
+#define TREE_DEPTH 4
 
 #define SEQ_DEPTH 1
  
@@ -89,6 +89,7 @@ extern pthread_mutex_t donemutex;
 extern int max_q_length[N_MACHINES][JOB_TYPES];
 extern int n_par;
 extern int global_selects;
+extern int global_updates;
 extern int global_leaf_eval;
 extern int global_downward_aborts;
 extern double global_unorderedness_seq_x[TREE_DEPTH];

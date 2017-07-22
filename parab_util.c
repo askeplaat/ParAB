@@ -303,6 +303,7 @@ int main(int argc, char *argv[]) {
   //  print_q_stats();
   printf("Selects: %d\n", global_selects);
   printf("Leaf Evals: %d\n", global_leaf_eval);
+  printf("Updates: %d\n", global_updates);
   printf("Downward parallel aborted searches: %d\n", global_downward_aborts);
   //  print_unorderedness();
   /*

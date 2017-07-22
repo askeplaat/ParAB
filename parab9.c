@@ -74,6 +74,7 @@ int n_par = 1;
 
 int global_selects = 0;
 int global_leaf_eval = 0;
+int global_updates = 0;
 int global_downward_aborts = 0;
 int global_no_jobs[N_MACHINES];
 int global_done = FALSE;
@@ -317,6 +318,8 @@ void do_update(node_type *node) {
   if (node && node->best_child) {
     int continue_updating = 0;
     
+    global_updates ++;
+
     if (node->maxormin == MAXNODE) {
       int old_a = node->a;
       node->a = max(node->a, node->best_child->a);

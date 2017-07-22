@@ -103,75 +103,25 @@ void do_work_queue(int i) {
   int workerNum = __cilkrts_get_worker_number();
   //  printf("My CILK worker number is %d\n", workerNum);
   int safety_counter = SAFETY_COUNTER_INIT;
-
   /*
-  // wait for jobs to arrive
-  //  while (empty(top[i][SELECT], i) && live_node(root)) {
-    // nothing
-  //}
-  //  printf("M%d starting job queue\n", i);
-  //  while (not_empty(top[i])) {
-  //  while (live_node(root) && total_jobs > 0) {
-
-  while (live_node(root) && safety_counter-- > 0) {
-    //  while (not_empty_and_live_root()) {
-
-    lock(&(jobmutex[i]));
-    while (empty_jobs(i) && live_node(root)) {
-      printf("M:%d Waiting %d:%d:%d:%d. root: <%d:%d>@%d. total_jobs: %d\n", i, 
-	     top[i][SELECT], top[i][PLAYOUT], 
-	     top[i][UPDATE], top[i][BOUND_DOWN], 
-	     root->a, root->b, root->board, total_jobs);
-      pthread_cond_wait(&job_available[i], &jobmutex[i]);
-    }
-    job = pull_job(i);
-    unlock(&(jobmutex[i]));
-
-    if (job) {
-      printf("M:%d Got %d [%d]\n", i, job->node->path, job->type_of_job);
-           lock(&treemutex);
-      process_job(job);
-            unlock(&treemutex);
-    }
-
-    //    pthread_mutex_lock(&treemutex);
-    //    pthread_mutex_lock(&jobmutex);
-    */
-    /*
-hmm. in this way the spawning of selects for the root is blocked if the condwait is waiting on a job for this machine.
-    if (all_empty_and_live_root()) { hmm. deze zou alleen door de machine met de root gedaan moeten worden. nu doen alle machines deze test. dan kunnen er wel heel veel select.roots tegelijk gescheduled worden. niet nodig.
-
-      het is dus mogelijk dat nu nog root live is, je hier in komt, de root closed wordt, de andere machine stopt, en je dan een schedu;ed. moet deze test+schedule ook niet atomair?
-uittekenen van mogelijke interleavings.
 																	  condities: live_root, empty_jobs
 																	  algoritme: zolang live_root, schedule selects.
 																	  of eigenlijk: zolang live_root && empty_jobs, dan schedule selects. En dat is ingewikkeld in deze code, want hier wordt op twee plekken gechecked voor live_root && empty jobs. Los van elkaar, niet atomair.
 
 Ik moet deze while loop herontwerpen
-    */
-  while (safety_counter-- > 0 && !global_done) { 
-    /* 
 split this loop into with root and without root
 pull-job
 process-job
-if root and no more jobs then schedule root-job (how often does this happen? more than once?)
-    */
+if root and no more jobs then schedule root-job (how often does this happen? more than once?)    */
+
+  /* I have the root node */
+  while (safety_counter-- > 0 && !global_done) { 
     job_type *job = NULL;
-      
-    //    printf("M:%d; Safety: %d\n", i, safety_counter);
-
-    // kan dit zonder locks?
-    if (i == root->board && total_jobs <= 0 /*empty_jobs(i)*/ && !global_done)  {
-      //does it schedule one or does it keep on pushing jobs in the q?
-      //      printf("root schedule: ");
+    
+    if (i==root->board && total_jobs <= 0 && !global_done)  {
       schedule(root, SELECT); // local schedule, q already locked
-      if (empty_jobs(i)) {
-	printf("ERROR: job queue still empty after scheduling root\n");
-      }
     }
-
-    //    if (i != root->board)  {
-    //      printf("LOCK for %d (while empty)\n", i);    
+    
     lock(&jobmutex[i]);
 #undef CONDWAIT
 #ifdef CONDWAIT
@@ -187,43 +137,19 @@ if root and no more jobs then schedule root-job (how often does this happen? mor
     if (!(org_v == total_jobs+1 || job==NULL)) {
       printf("M:%d total_jobs: %d. me empty: %d\n", i, total_jobs, empty_jobs(i));
     }
-    unlock(&(jobmutex[i]));
-      //    } 
+    unlock(&jobmutex[i]);
     
     if (job) {
       //            lock_node(job->node);
-      //   lock(&treemutex);
+      lock(&treemutex);
       process_job(job);
-      //      unlock(&treemutex); 
-      //unlock_node(job->node);
-      if (i == root->board && !live_node(root)) {
-	//	lock(&donemutex);
-	global_done = TRUE;
-
-	// root is solved. release all condition variables
-	for (int i = 0; i < N_MACHINES; i++) {
-	  pthread_cond_broadcast(&job_available[i]);
-	}
-
-	//	unlock(&donemutex);
-	break;
-      } 
-    }
-    //    lock(&donemutex);
-    if (global_done) {
-      //      unlock(&donemutex);
-      break;
-    }
-    //    unlock(&donemutex);
-    
-  } // while true
-      /*
-      printf("* live root: %d, ab:<%d:%d>, lbub:<%d:%d>, wawb:<%d:%d>\n", 
-	     live_node(root), 
-	     root->a, root->b,
-	     root->lb, root->ub, 
-	     root->wa, root->wb);
-      */
+      unlock(&treemutex); 
+      //    unlock_node(job->node);
+      lock(&donemutex);
+      global_done = !live_node(root);
+      unlock(&donemutex);
+    } 
+  } // while 
 
   if (safety_counter <= 0) {
     printf("M:%d ERROR: safety triggered\n", i);
