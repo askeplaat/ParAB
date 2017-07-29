@@ -12,8 +12,8 @@
  */
 
 #define N_MACHINES 2
-#define TREE_WIDTH 2
-#define TREE_DEPTH 4
+#define TREE_WIDTH 3
+#define TREE_DEPTH 2
 
 #define SEQ_DEPTH 1
  
@@ -34,12 +34,12 @@
 #define TRUE 1
 #define FALSE 0
 
-#define SAFETY_COUNTER_INIT 50000000
+#define SAFETY_COUNTER_INIT 10000000
 
 
 
 // use Parallel Unorderedness to determine how much parallelism there should be scheduled
-#define PUO
+#undef PUO
 #define LOCKS
 
 
@@ -96,6 +96,7 @@ extern double global_unorderedness_seq_x[TREE_DEPTH];
 extern int global_unorderedness_seq_n[TREE_DEPTH];
 extern int global_no_jobs[N_MACHINES];
 extern int global_done;
+extern int global_in_wait;
 
 /*
  * prototypes

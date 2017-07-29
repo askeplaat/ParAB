@@ -78,6 +78,7 @@ int global_updates = 0;
 int global_downward_aborts = 0;
 int global_no_jobs[N_MACHINES];
 int global_done = FALSE;
+int global_in_wait = 0;
 
 /* statistics to track which child caused cutoffs at CUT nodes, measure for the orderedness of the tree */
 double global_unorderedness_seq_x[TREE_DEPTH];
@@ -289,8 +290,8 @@ node_type * first_live_child(node_type *node, int p) {
 // just std ab evaluation. no mcts playout
 void do_playout(node_type *node) {
   node->a = node->b = node->lb = node->ub = evaluate(node);
-  //  printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
-  //  	 node->board, node->path, node->depth, node->a);
+  printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
+  	 node->board, node->path, node->depth, node->a);
   // can we do this? access a pointer of a node located at another machine?
   //  schedule(node->parent, UPDATE, node->lb, node->ub);
   if (node->parent) {
@@ -344,7 +345,7 @@ void do_update(node_type *node) {
 				      par search is more than ensemble. in ensemble search all searches are independent. in par they are dependent, the influence each other, one result may stop 
 				      bound propagtion, is that asynch to job queue, just scan all jobs for subchildren, and update bound, or can we send an update/select job to the queues?
     */
-#undef PRINT_UPDATE
+#define PRINT_UPDATE
 #ifdef PRINT_UPDATE
     if (node && node->parent) {
       printf("M%d P%d %s UPDATE d:%d  --  %d:<%d:%d> n_ch:%d\n", 
@@ -379,6 +380,7 @@ void do_update(node_type *node) {
 // in a parallel search when a bound is updated it must be propagated to other
 // subtrees that may be searched in parallel
 void downward_update_children(node_type *node) {
+  return;
   if (node) {
     for (int ch = 0; ch < node->n_children && node->children[ch]; ch++) {
       node_type *child = node->children[ch]; 

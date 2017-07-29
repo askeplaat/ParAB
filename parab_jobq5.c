@@ -77,12 +77,6 @@ int all_empty_and_live_root() {
   return e;
 }
 
-void schedule(node_type *node, int t) {
-  if (node) {
-    // send to remote machine
-    add_to_queue(new_job(node, t));
-  } 
-}
 
 void start_processes(int n_proc) {
   int i;
@@ -103,26 +97,50 @@ void do_work_queue(int i) {
   int workerNum = __cilkrts_get_worker_number();
   //  printf("My CILK worker number is %d\n", workerNum);
   int safety_counter = SAFETY_COUNTER_INIT;
-  /*
-																	  condities: live_root, empty_jobs
-																	  algoritme: zolang live_root, schedule selects.
-																	  of eigenlijk: zolang live_root && empty_jobs, dan schedule selects. En dat is ingewikkeld in deze code, want hier wordt op twee plekken gechecked voor live_root && empty jobs. Los van elkaar, niet atomair.
 
-Ik moet deze while loop herontwerpen
-split this loop into with root and without root
-pull-job
-process-job
-if root and no more jobs then schedule root-job (how often does this happen? more than once?)    */
-
-  /* I have the root node */
   while (safety_counter-- > 0 && !global_done && live_node(root)) { 
     job_type *job = NULL;
-    
-    //    lock(&jobmutex[i]);
-    if (i==root->board && total_jobs <= 0 && !global_done)  {
-      printf("* <%d,%d> \n", root->a, root->b);
-      schedule(root, SELECT); // local schedule, q already locked
+    /*
+      lock
+      if live_root && !globaldone then 
+        if i==root->board && totaljobs==0 then push select root
+        if  i!=root->board  && empty(i) then condwait
+        in all cases, pull job, process job
+      unlock
+    */
+
+    printf("M:%d lock\n", i);
+    lock(&jobmutex[i]);
+    if (live_node(root) && !global_done) {
+      if (i==root->board && total_jobs <= 0)  {
+	printf("PUSH root select <%d,%d> \n", root->a, root->b);
+	// no locks. shcedule does locking of push, add_to_queue does no locking of push
+	add_to_queue(new_job(root, SELECT)); 
+      }
+      if (i!=root->board) { 
+#define CONDWAIT
+#ifdef CONDWAIT
+	while (empty_jobs(i)) { 
+	  global_in_wait++;
+	  printf("M:%d Waiting (root@%d) jobs:%d. in wait: %d\n", i, root->board, total_jobs, global_in_wait);
+	  pthread_cond_wait(&job_available[i], &jobmutex[i]); // root closed must release block 
+	  global_in_wait--;
+	}
+#endif   
+      }   
+      int org_v = total_jobs;
+      job = pull_job(i);
+      if (job) {
+	//            lock_node(job->node);
+	lock(&treemutex);
+	process_job(job);
+	unlock(&treemutex); 
+	//    unlock_node(job->node);
+      }     
     }
+    printf("M:%d unlock. job: %d <%d,%d> totaljobs: %d\n", i, job, root->a, root->b, total_jobs);
+    unlock(&jobmutex[i]);
+    
     //    unlock(&jobmutex[i]);
 
     lock(&donemutex);
@@ -131,55 +149,6 @@ if root and no more jobs then schedule root-job (how often does this happen? mor
     }
     unlock(&donemutex);      
 
-    /*
-    if (pthread_mutex_trylock(&jobmutex[i])) {
-	printf("M:%d lock\n", i);
-    }
-    */
-    printf("M:%d lock\n", i);
-    lock(&jobmutex[i]);
-    /*
-    if (i==root->board && total_jobs == 0) {
-      printf("ERROR: root machine has total jobs zero\n");
-      printf("empty: %d. totaljobs: %d. done: %d\n", empty_jobs(i), total_jobs, global_done);
-      exit(1);
-    }
-    */
-    //    assert(!empty_jobs(i) || i != root->board);
-    // the queue of the machine with the root can never be empty. if it is empty a select will be scheduled
-
-#define CONDWAIT
-#ifdef CONDWAIT
-    while (i!=root->board && empty_jobs(i) && !global_done && live_node(root)/* && total_jobs > 0*/) {
-      //moet die i!= root niet ook in de whule conditie??????
-
-      //      maybe I am in a cond wait, because root was still live, but now root is dead, but I am still in the cond wait, does root becoming dead cause a signal to happen?
-      global_in_wait++;
-      printf("M:%d Waiting (root@%d) jobs:%d. in wait: %d\n", i, root->board, total_jobs, global_in_wait);
-      pthread_cond_wait(&job_available[i], &jobmutex[i]); // root closed must release block 
-      global_in_wait--;
-    }
-#endif
-    int org_v = total_jobs;
-    job = pull_job(i);
-    //    if (!(org_v == total_jobs+1 || job==NULL)) {
-    //      printf("M:%d total_jobs: %d. me empty: %d\n", i, total_jobs, empty_jobs(i));
-    //    }
-    printf("M:%d unlock. job: %d <%d,%d> totaljobs: %d\n", i, job, root->a, root->b, total_jobs);
-    unlock(&jobmutex[i]);
-    
-    /*
-    Why does machine with root not schedule selects when totaljobs is zero???????
-because it is in a condwait.
-      so 1 is in a condwait, and 0 is done, but does not signal 1. apparently it does not do an update to the root. well, maybe it does not have to update the root, since the child node decides it does not continue update?
-    */
-    if (job) {
-      //            lock_node(job->node);
-      lock(&treemutex);
-      process_job(job);
-      unlock(&treemutex); 
-      //    unlock_node(job->node);
-    } 
     lock(&donemutex);
     global_done |= !live_node(root);
     //    global_done |= total_jobs <= 0;
@@ -201,6 +170,24 @@ because it is in a condwait.
   //  printf("M%d Queue is empty or root is solved. jobs: %d. root: <%d:%d> \n", i, total_jobs, root->a, root->b);
 }
 
+void schedule(node_type *node, int t) {
+  if (node) {
+    // send to remote machine
+    int home_machine = node->board;
+    printf("LOCK machine %d (addtoq) p:%d\n", home_machine, node->path);
+
+    lock(&(jobmutex[home_machine]));
+    int was_empty = empty_jobs(home_machine);  
+    add_to_queue(new_job(node, t));
+    unlock(&(jobmutex[home_machine]));  //  printf("M:%d pushed %d [%d.%d.%d.%d]\n", home_machine, job->node->path,  top[home_machine][SELECT],  top[home_machine][UPDATE],  top[home_machine][PLAYOUT],  top[home_machine][BOUND_DOWN]);
+
+    if (was_empty) {
+      printf("Signalling machine %d for path %d type:[%d]. in wait: %d\n", home_machine, node->path, type_of_job, global_in_wait);
+      pthread_cond_signal(&job_available[home_machine]);
+    }
+  } 
+}
+
 // which q? one per processor
 void add_to_queue(job_type *job) {
   int home_machine = job->node->board;
@@ -210,23 +197,12 @@ void add_to_queue(job_type *job) {
     exit(1);
   }
  
-  printf("LOCK machine %d (addtoq) p:%d\n", home_machine, job->node->path);
-  lock(&(jobmutex[home_machine]));
   if (top[home_machine][jobt] >= N_JOBS) {
     printf("M%d Top:%d ERROR: queue [%d] full\n", home_machine, top[home_machine][jobt], jobt);
     exit(1);
   }
 
-  int was_empty = empty_jobs(home_machine);  
-
   push_job(home_machine, job);
-
-  unlock(&(jobmutex[home_machine]));  //  printf("M:%d pushed %d [%d.%d.%d.%d]\n", home_machine, job->node->path,  top[home_machine][SELECT],  top[home_machine][UPDATE],  top[home_machine][PLAYOUT],  top[home_machine][BOUND_DOWN]);
-  if (was_empty) {
-    printf("Signalling machine %d for path %d type:[%d]. in wait: %d\n", home_machine, job->node->path, job->type_of_job, global_in_wait);
-    pthread_cond_signal(&job_available[home_machine]);
-  }
-
 }
 
 
