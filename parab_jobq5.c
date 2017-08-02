@@ -61,6 +61,20 @@ int empty_jobs(int home) {
     top[home][PLAYOUT] < 1;
 }
 
+int no_more_jobs_in_system(int home) {
+  if (!empty_jobs(home)) {
+      return FALSE;
+  } else {
+    for (int i = 0; i < N_MACHINES; i++) {
+      if (!empty_jobs(i)) {
+	return FALSE;
+      }
+    }
+  }
+  return TRUE;
+}
+
+/*
 int not_empty_and_live_root() {
   int home = root->board;
   lock(&jobmutex[home]);
@@ -76,7 +90,7 @@ int all_empty_and_live_root() {
   unlock(&jobmutex[home]);
   return e;
 }
-
+*/
 
 void start_processes(int n_proc) {
   int i;
@@ -86,14 +100,12 @@ void start_processes(int n_proc) {
   for (i = 0; i<N_MACHINES; i++) {
     cilk_spawn do_work_queue(i);
   }
+  printf("M:%d. Before Cilk sync\n", i);
   cilk_sync;
-  //  printf("Root is solved. jobs: %d. root: <%d:%d> [%d:%d]\n", total_jobs, root->a, root->b, root->lb, root->ub);
+  printf("Root is solved. jobs: %d. root: <%d:%d> [%d:%d]\n", total_jobs, root->a, root->b, root->lb, root->ub);
 }
 
 void do_work_queue(int i) {
-  //  printf("Hi from machine %d  ", i);
-  //  printf("top[%d]: %d  ", i, top[i]);
-
   int workerNum = __cilkrts_get_worker_number();
   //  printf("My CILK worker number is %d\n", workerNum);
   int safety_counter = SAFETY_COUNTER_INIT;
@@ -101,58 +113,76 @@ void do_work_queue(int i) {
   while (safety_counter-- > 0 && !global_done && live_node(root)) { 
     job_type *job = NULL;
     /*
-      lock
+      lock(i)
       if live_root && !globaldone then 
         if i==root->board && totaljobs==0 then push select root
-        if  i!=root->board  && empty(i) then condwait
+        if empty(i) then condwait
         in all cases, pull job, process job
-      unlock
+      unlock(i)
+since locking is on i there is no global lock, and empty/total_jobs is not atomically shielded, not mutually exclusive.
+it can happend that total_jobs is 1 while all queueus are empty(i), or total_jobs is 0 while some queue has a job. the formeer causes infinte wait since all machines fall into the condwait, while the root machine has not added a select root job.
+the latter is just a surious extra job to process, which will find out the the root is already closed. nothing serious.
+so we must make sure that when all queus are empty, that total_jobs truly is 0 (especially when the root is still live, since hten we need to continue searching, the root must spawn a select).
+we could do a stepped search. first look at local q, if empt, then ask others if they are empty
     */
-
-    printf("M:%d lock\n", i);
-    lock(&jobmutex[i]);
-    if (live_node(root) && !global_done) {
-      if (i==root->board && total_jobs <= 0)  {
-	printf("PUSH root select <%d,%d> \n", root->a, root->b);
-	// no locks. shcedule does locking of push, add_to_queue does no locking of push
-	add_to_queue(new_job(root, SELECT)); 
-      }
-      if (i!=root->board) { 
-#define CONDWAIT
-#ifdef CONDWAIT
-	while (empty_jobs(i)) { 
-	  global_in_wait++;
-	  printf("M:%d Waiting (root@%d) jobs:%d. in wait: %d\n", i, root->board, total_jobs, global_in_wait);
-	  pthread_cond_wait(&job_available[i], &jobmutex[i]); // root closed must release block 
-	  global_in_wait--;
-	}
-#endif   
-      }   
-      int org_v = total_jobs;
-      job = pull_job(i);
-      if (job) {
-	//            lock_node(job->node);
-	lock(&treemutex);
-	process_job(job);
-	unlock(&treemutex); 
-	//    unlock_node(job->node);
-      }     
-    }
-    printf("M:%d unlock. job: %d <%d,%d> totaljobs: %d\n", i, job, root->a, root->b, total_jobs);
-    unlock(&jobmutex[i]);
-    
-    //    unlock(&jobmutex[i]);
-
     lock(&donemutex);
     if (global_done) {
 	break;
     }
     unlock(&donemutex);      
 
+    printf("M:%d lock. jobs: %d\n", i, total_jobs);
+    lock(&jobmutex[i]); 
+
+    /*
+nu heb ik alleen mijn eigen q gelockt.
+andere queues hebben vrij spel.
+total jobs is nu onbetrouwaar
+ik moet alle queues locken...
+    */
+
+    if (live_node(root) && !global_done) {
+      if (i == root->board && no_more_jobs_in_system(i)/*total_jobs <= 0*/)  {
+	printf("PUSH root select <%d,%d> \n", root->a, root->b);
+	// no locks. shcedule does locking of push, add_to_queue does no locking of push
+	add_to_queue(new_job(root, SELECT)); 
+      }
+      //      if (i != root->board) { 
+#define CONDWAIT
+#ifdef CONDWAIT
+      while (empty_jobs(i) && !global_done && live_node(root) && (i != root->board || total_jobs > 0)) { 
+	global_in_wait++;
+	printf("M:%d Waiting (root@%d) jobs:%d. in wait: %d\n", i, root->board, total_jobs, global_in_wait);
+	pthread_cond_wait(&job_available[i], &jobmutex[i]); // root closed must release block 
+	global_in_wait--;
+      }
+#endif
+	//      }   
+    
+      job = pull_job(i);
+    }
+    printf("M:%d unlock. job: %d <%d,%d> totaljobs: %d. done: %d. liveroot: %d\n", i, job, root->a, root->b, total_jobs, global_done, live_node(root));
+    unlock(&jobmutex[i]);
+    
+    if (job) {
+      //            lock_node(job->node);
+      //      lock(&treemutex);
+      process_job(job);
+      //      unlock(&treemutex); 
+	//    unlock_node(job->node);
+    }     
+    
+    //    unlock(&jobmutex[i]);
+
     lock(&donemutex);
     global_done |= !live_node(root);
     //    global_done |= total_jobs <= 0;
-    unlock(&donemutex);
+    if (global_done) {
+      unlock(&donemutex);      
+      break;
+    }
+    unlock(&donemutex);      
+
   } // while 
 
   if (safety_counter <= 0) {
@@ -161,13 +191,17 @@ void do_work_queue(int i) {
     //    printf("M:%d safety counter: %d. root is at machine: %d\n", i, safety_counter, root->board);
   }
 
+  //  lock(&donemutex);
+  global_done = 1;
+  //  unlock(&donemutex);
+
   // root is solved. release all condition variables
-  printf("M:%d. Broadcast all threads release cond wait. done: %d\n", i, global_done);
+  printf("M:%d. Finished. Broadcast all threads release cond wait. done: %d. liveroot: %d\n", i, global_done, live_node(root));
   for (int i = 0; i < N_MACHINES; i++) {
     pthread_cond_broadcast(&job_available[i]);
   }
 
-  //  printf("M%d Queue is empty or root is solved. jobs: %d. root: <%d:%d> \n", i, total_jobs, root->a, root->b);
+  printf("M:%d. Finished. Queue is empty or root is solved. jobs: %d. root: <%d:%d> \n", i, total_jobs, root->a, root->b);
 }
 
 void schedule(node_type *node, int t) {
@@ -182,7 +216,7 @@ void schedule(node_type *node, int t) {
     unlock(&(jobmutex[home_machine]));  //  printf("M:%d pushed %d [%d.%d.%d.%d]\n", home_machine, job->node->path,  top[home_machine][SELECT],  top[home_machine][UPDATE],  top[home_machine][PLAYOUT],  top[home_machine][BOUND_DOWN]);
 
     if (was_empty) {
-      printf("Signalling machine %d for path %d type:[%d]. in wait: %d\n", home_machine, node->path, type_of_job, global_in_wait);
+      printf("Signalling machine %d for path %d type:[%d]. in wait: %d\n", home_machine, node->path, t, global_in_wait);
       pthread_cond_signal(&job_available[home_machine]);
     }
   } 
@@ -211,7 +245,17 @@ void add_to_queue(job_type *job) {
 */
 
 void push_job(int home_machine, job_type *job) {
+  //  lock(&total_jobs_mutex);
   total_jobs++;
+  /*
+hmm. this is not enough. making increment atomic is too little. as if they were not atomic.
+I must make sure totaljobs reflects the true total jobs number in the system, 
+the total of the jobs in all job queues.
+make total_jobs() a function? counting all machine queues on demand?
+Maar zelfs die moet dan alle tops van alle machines locken, zodat ze niet veranderen, 
+en het gebruik hiervan moet atomair zijn met empty(i), want dat moet consistent zijn.
+  */
+  //  unlock(&total_jobs_mutex);
   int jobt = job->type_of_job;
   //int jobt = SELECT;
   queue[home_machine][++(top[home_machine][jobt])][jobt] = job;
@@ -224,14 +268,25 @@ void push_job(int home_machine, job_type *job) {
   }
   assert(home_machine == job->node->board);
 
-  printf("    M:%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> \n", 
+  printf("    M:%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> jobs: %d\n", 
 	 job->node->board, job->node->path, 
-	 job->node->maxormin==MAXNODE?"+":"-", 
+ 	 job->node->maxormin==MAXNODE?"+":"-", 
 	 job->node->board, top[job->node->board][jobt], job->type_of_job,
-	 job->node->a, job->node->b);
+	 job->node->a, job->node->b, total_jobs);
 #endif
   //  sort_queue(queue[home_machine], top[home_machine]);
   //  print_queue(queue[home_machine], top[home_machine]);
+}
+
+void check_job_consistency() {
+  int j = 0;
+  for (int i = 0; i < N_MACHINES; i++) {
+    j += top[i][SELECT] + top[i][UPDATE] + top[i][BOUND_DOWN] + top[i][PLAYOUT];
+  }
+  if (total_jobs != j) {
+    printf("ERROR Inconsistency total_jobs =/= j %d %d\n", total_jobs, j);
+    exit(0);
+  }
 }
 
 /*
@@ -239,21 +294,29 @@ void push_job(int home_machine, job_type *job) {
 */
 
 job_type *pull_job(int home_machine) {
-  //  printf("M%d Pull   ", home_machine);
+  //  printf("M:%d Pull   ", home_machine);
   int jobt = BOUND_DOWN;
   // first try bound_down, then try update, then try select
   while (jobt > 0) {
     if (top[home_machine][jobt] > 0) {
+      //      lock(&total_jobs_mutex);
       total_jobs--;
+      //      unlock(&total_jobs_mutex);
+      if (total_jobs <= 0) {
+	printf("Signalling root machnine since totaljobs is zero\n");
+	pthread_cond_signal(&job_available[root->board]);
+	// send signal naar root home machnien;
+      }
       //      assert(total_jobs >= 0);
       job_type *job = queue[home_machine][top[home_machine][jobt]--][jobt];
-#undef PRINT_PULLS
+      //      check_job_consistency();
+#define PRINT_PULLS
 #ifdef PRINT_PULLS
-      printf("    M:%d P:%d %s TOP[%d]:%d PULL  [%d] <%d:%d> \n", 
+      printf("    M:%d P:%d %s TOP[%d]:%d PULL  [%d] <%d:%d> jobs: %d\n", 
 	     job->node->board, job->node->path, 
 	     job->node->maxormin==MAXNODE?"+":"-", 
 	     job->node->board, top[job->node->board][jobt], job->type_of_job,
-	     job->node->a, job->node->b);
+	     job->node->a, job->node->b, total_jobs);
 #endif
       return job;
     }

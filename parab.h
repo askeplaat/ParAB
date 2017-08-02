@@ -12,8 +12,8 @@
  */
 
 #define N_MACHINES 2
-#define TREE_WIDTH 3
-#define TREE_DEPTH 2
+#define TREE_WIDTH 4
+#define TREE_DEPTH 4
 
 #define SEQ_DEPTH 1
  
@@ -39,7 +39,7 @@
 
 
 // use Parallel Unorderedness to determine how much parallelism there should be scheduled
-#undef PUO
+#define PUO
 #define LOCKS
 
 
@@ -125,6 +125,7 @@ int leaf_node(node_type *node);
 int seq(node_type *node);
 int min(int a, int b);
 int max(int a, int b);
+int no_more_jobs_in_system(int home);
 int update_selects_with_bound(node_type *node);
 void sort_queue(job_type *q[], int t);
 void print_queue(job_type *q[], int t);
