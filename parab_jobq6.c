@@ -149,7 +149,7 @@ ik moet alle queues locken...
     */
 
     if (live_node(root) && !global_done) {
-      if (i == root->board && no_more_jobs_in_system(i)/*total_jobs <= 0*/)  {
+      if (i == root->board && global_in_wait == N_MACHINES impossible/*total_jobs <= 0*/)  {
 	printf("PUSH root select <%d,%d> \n", root->a, root->b);
 	// no locks. shcedule does locking of push, add_to_queue does no locking of push
 	add_to_queue(new_job(root, SELECT)); 
@@ -168,17 +168,20 @@ dus de root machine kan denken dat er niet nog een bijgemaakt hoeft te
 
 Ik moet eerst maar eens testen of alles correct is met een enkel globaal lock om deze sectie heen!!!!
       */
+
+      // ok now use global_in_wait as the basis for everything
+
       //      if (i != root->board) { 
 #define CONDWAIT
 #ifdef CONDWAIT
       //      while (empty_jobs(i) && !global_done && live_node(root) && (total_jobs > 0 || i!=root->board)) { 
-      while (empty_jobs(i) && !global_done && live_node(root) && !no_more_jobs_in_system(i)) { 
+      while (empty_jobs(i) && !global_done && live_node(root) && global_in_wait < N_MACHINES-1) { 
 	global_in_wait++;
 	printf("M:%d Waiting (root@%d) jobs:%d. in wait: %d\n", i, root->board, total_jobs, global_in_wait);
 	assert(live_node(root));
 	assert(!no_more_jobs_in_system(i));
 
-moet de job_available ook globaal?
+	//moet de job_available ook globaal?
 	pthread_cond_wait(&global_job_available, &global_jobmutex); // root closed must release block 
 	//	pthread_cond_wait(&job_available[i], &jobmutex[i]); // root closed must release block 
 	global_in_wait--;

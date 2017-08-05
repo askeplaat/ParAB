@@ -264,7 +264,7 @@ int main(int argc, char *argv[]) {
       max_q_length[i][j] = 0;
     }
     pthread_mutex_init(&jobmutex[i], NULL);
-    pthread_cond_init(&job_available[i], NULL);
+    //    pthread_cond_init(&job_available[i], NULL);
     global_no_jobs[i] = 0;
     //    jobmutex[i] = PTHREAD_MUTEX_INITIALIZER;
   }

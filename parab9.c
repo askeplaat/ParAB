@@ -66,9 +66,12 @@ job_type *queue[N_MACHINES][N_JOBS][JOB_TYPES];
 int top[N_MACHINES][JOB_TYPES];
 int total_jobs = 0;
 pthread_mutex_t jobmutex[N_MACHINES];
-pthread_cond_t job_available[N_MACHINES];
+pthread_mutex_t global_jobmutex = PTHREAD_MUTEX_INITIALIZER;
+//pthread_cond_t job_available[N_MACHINES];
+pthread_cond_t global_job_available = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t treemutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t donemutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t global_queues_mutex = PTHREAD_MUTEX_INITIALIZER;
 int max_q_length[N_MACHINES][JOB_TYPES];
 int n_par = 1;
 
