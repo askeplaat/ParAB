@@ -149,34 +149,33 @@ ik moet alle queues locken...
     */
 
     if (live_node(root) && !global_done) {
-      if (i == root->board && global_in_wait == N_MACHINES impossible/*total_jobs <= 0*/)  {
+      if (i == root->board && global_in_wait == N_MACHINES-1 && empty_jobs(i)  /*total_jobs <= 0*/)  {
 	printf("PUSH root select <%d,%d> \n", root->a, root->b);
 	// no locks. shcedule does locking of push, add_to_queue does no locking of push
 	add_to_queue(new_job(root, SELECT)); 
 	assert(!no_more_jobs_in_system(i));
       }
       //      assert(!no_more_jobs_in_system(i));
-      /*
-is het mogelijk dat livenode verandert halverwege deze code? er zit geen mutex om de tree manipulaion code...
-en hoe zit het met jobs? kunnen die halverwege deze code ontstaan of weggaan?
-ja. er zit een andere mutex om de job queue van een andere machine.
-beide kan. ontstaan en verdwijnen
-hmm
-dus de root machine kan denken dat er niet nog een bijgemaakt hoeft te 
-  simpel. dit is een critieke sectie die in zijn geheel moet kloppen. als de root machine denkt dat er wel jobs in het hele systeem zijn, en rustig in de wait gaat zitten, moet een andere machine niet net de laatste job afwerken, en zelf ook in de wait gaan duiken. 
-  Dit kan hier in deze code, want al heeft de nomorejobs functie dan wel een eigen globale mutex, die is te klein, die omvat niet het testen van zowel root als niet-root machine.
-
-Ik moet eerst maar eens testen of alles correct is met een enkel globaal lock om deze sectie heen!!!!
-      */
 
       // ok now use global_in_wait as the basis for everything
 
       //      if (i != root->board) { 
 #define CONDWAIT
 #ifdef CONDWAIT
-      //      while (empty_jobs(i) && !global_done && live_node(root) && (total_jobs > 0 || i!=root->board)) { 
-      while (empty_jobs(i) && !global_done && live_node(root) && global_in_wait < N_MACHINES-1) { 
-	global_in_wait++;
+      //      while (empty_jobs(i) && !global_done && live_node(root) && (total_jobs > 0 || i!=root->board)) {
+      //root machine mag toch nooit in wait vallen? 
+      // root machine queue mag nooit leeg zijn.
+      assert(i!=root->board || !empty_jobs(i) || !no_more_jobs_in_system(i));
+      //      nee klopt niet. root mag wel leeg zijn, als er elders maar jobs zijn
+
+      // als alle anderen in wait hangen, moet root machine een job hebben
+      // ofwel niet iedereen hangt in een wait, ofwel root dood
+      assert(global_in_wait < N_MACHINES || !live_node(root));
+      assert(global_in_wait < N_MACHINES || !empty_jobs(i) || !live_node(root));
+      while (i!=root->board && empty_jobs(i) && !global_done && live_node(root) && global_in_wait < N_MACHINES-1) { 
+	if (i!=root->board) {
+	  global_in_wait++; // is this a count of threads or a count of nodes? threads
+	}
 	printf("M:%d Waiting (root@%d) jobs:%d. in wait: %d\n", i, root->board, total_jobs, global_in_wait);
 	assert(live_node(root));
 	assert(!no_more_jobs_in_system(i));
@@ -184,7 +183,9 @@ Ik moet eerst maar eens testen of alles correct is met een enkel globaal lock om
 	//moet de job_available ook globaal?
 	pthread_cond_wait(&global_job_available, &global_jobmutex); // root closed must release block 
 	//	pthread_cond_wait(&job_available[i], &jobmutex[i]); // root closed must release block 
-	global_in_wait--;
+	if (i!=root->board) {
+	  global_in_wait--;
+	}
       }
 #endif
 	//      }   
@@ -242,10 +243,10 @@ void schedule(node_type *node, int t) {
     int home_machine = node->board;
     printf("LOCK machine %d (addtoq) p:%d\n", home_machine, node->path);
 
-    lock(&(jobmutex[home_machine]));
+    lock(&(global_jobmutex));
     int was_empty = empty_jobs(home_machine);  
     add_to_queue(new_job(node, t));
-    unlock(&(jobmutex[home_machine]));  //  printf("M:%d pushed %d [%d.%d.%d.%d]\n", home_machine, job->node->path,  top[home_machine][SELECT],  top[home_machine][UPDATE],  top[home_machine][PLAYOUT],  top[home_machine][BOUND_DOWN]);
+    unlock(&(global_jobmutex));  //  printf("M:%d pushed %d [%d.%d.%d.%d]\n", home_machine, job->node->path,  top[home_machine][SELECT],  top[home_machine][UPDATE],  top[home_machine][PLAYOUT],  top[home_machine][BOUND_DOWN]);
 
     if (was_empty) {
       printf("Signalling machine %d for path %d type:[%d]. in wait: %d\n", home_machine, node->path, t, global_in_wait);
