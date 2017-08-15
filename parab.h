@@ -11,9 +11,9 @@
  * defines
  */
 
-#define N_MACHINES 2
-#define TREE_WIDTH 4
-#define TREE_DEPTH 4
+#define N_MACHINES 1
+#define TREE_WIDTH 2
+#define TREE_DEPTH 2
 
 #define SEQ_DEPTH 1
  
@@ -39,7 +39,7 @@
 
 
 // use Parallel Unorderedness to determine how much parallelism there should be scheduled
-#define PUO
+#undef PUO
 #define LOCKS
 
 

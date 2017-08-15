@@ -300,7 +300,7 @@ int main(int argc, char *argv[]) {
   printf("Done. value: %d\n", g);
 
   //  print_tree(root, min(3, TREE_DEPTH));
-  //  print_q_stats();
+  print_q_stats();
   printf("Selects: %d\n", global_selects);
   printf("Leaf Evals: %d\n", global_leaf_eval);
   printf("Updates: %d\n", global_updates);

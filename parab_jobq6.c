@@ -139,7 +139,7 @@ we could do a stepped search. first look at local q, if empt, then ask others if
 
     //    lock(&jobmutex[i]); 
     lock(&global_jobmutex); 
-    printf("M:%d locked. jobs: %d\n", i, total_jobs);
+    //    printf("M:%d locked. jobs: %d\n", i, total_jobs);
 
     /*
 nu heb ik alleen mijn eigen q gelockt.
@@ -150,7 +150,7 @@ ik moet alle queues locken...
 
     if (live_node(root) && !global_done) {
       if (i == root->board && global_in_wait == N_MACHINES-1 && empty_jobs(i)  /*total_jobs <= 0*/)  {
-	printf("PUSH root select <%d,%d> \n", root->a, root->b);
+	//	printf("PUSH root select <%d,%d> \n", root->a, root->b);
 	// no locks. shcedule does locking of push, add_to_queue does no locking of push
 	add_to_queue(new_job(root, SELECT)); 
 	assert(!no_more_jobs_in_system(i));
@@ -165,7 +165,8 @@ ik moet alle queues locken...
       //      while (empty_jobs(i) && !global_done && live_node(root) && (total_jobs > 0 || i!=root->board)) {
       //root machine mag toch nooit in wait vallen? 
       // root machine queue mag nooit leeg zijn.
-      assert(i!=root->board || !empty_jobs(i) || !no_more_jobs_in_system(i));
+      //      assert(i!=root->board || !empty_jobs(i) || !no_more_jobs_in_system(i));
+      //      no_more_jobs_in_system klotp niet, die loopt achter. als je naar in_wait kijkt heb je een scherper beeld, ook de gegene die verwerkt worden tel je dan mee
       //      nee klopt niet. root mag wel leeg zijn, als er elders maar jobs zijn
 
       // als alle anderen in wait hangen, moet root machine een job hebben
@@ -176,9 +177,9 @@ ik moet alle queues locken...
 	if (i!=root->board) {
 	  global_in_wait++; // is this a count of threads or a count of nodes? threads
 	}
-	printf("M:%d Waiting (root@%d) jobs:%d. in wait: %d\n", i, root->board, total_jobs, global_in_wait);
+	//	printf("M:%d Waiting (root@%d) jobs:%d. in wait: %d\n", i, root->board, total_jobs, global_in_wait);
 	assert(live_node(root));
-	assert(!no_more_jobs_in_system(i));
+	//	assert(!no_more_jobs_in_system(i));
 
 	//moet de job_available ook globaal?
 	pthread_cond_wait(&global_job_available, &global_jobmutex); // root closed must release block 
@@ -192,7 +193,7 @@ ik moet alle queues locken...
     
       job = pull_job(i);
     }
-    printf("M:%d unlock. job: %d <%d,%d> totaljobs: %d. done: %d. liveroot: %d\n", i, job, root->a, root->b, total_jobs, global_done, live_node(root));
+    //    printf("M:%d unlock. job: %d <%d,%d> totaljobs: %d. done: %d. liveroot: %d\n", i, job, root->a, root->b, total_jobs, global_done, live_node(root));
     unlock(&global_jobmutex);
     //    unlock(&jobmutex[i]);
     
@@ -241,7 +242,7 @@ void schedule(node_type *node, int t) {
   if (node) {
     // send to remote machine
     int home_machine = node->board;
-    printf("LOCK machine %d (addtoq) p:%d\n", home_machine, node->path);
+    //    printf("LOCK machine %d (addtoq) p:%d\n", home_machine, node->path);
 
     lock(&(global_jobmutex));
     int was_empty = empty_jobs(home_machine);  
@@ -249,7 +250,7 @@ void schedule(node_type *node, int t) {
     unlock(&(global_jobmutex));  //  printf("M:%d pushed %d [%d.%d.%d.%d]\n", home_machine, job->node->path,  top[home_machine][SELECT],  top[home_machine][UPDATE],  top[home_machine][PLAYOUT],  top[home_machine][BOUND_DOWN]);
 
     if (was_empty) {
-      printf("Signalling machine %d for path %d type:[%d]. in wait: %d\n", home_machine, node->path, t, global_in_wait);
+      //      printf("Signalling machine %d for path %d type:[%d]. in wait: %d\n", home_machine, node->path, t, global_in_wait);
       //      pthread_cond_signal(&job_available[home_machine]);
       pthread_cond_signal(&global_job_available);
     }
@@ -295,7 +296,7 @@ en het gebruik hiervan moet atomair zijn met empty(i), want dat moet consistent 
   queue[home_machine][++(top[home_machine][jobt])][jobt] = job;
   max_q_length[home_machine][jobt] = 
     max(max_q_length[home_machine][jobt], top[home_machine][jobt]);
-#define PRINT_PUSHES
+#undef PRINT_PUSHES
 #ifdef PRINT_PUSHES
   if (seq(job->node)) {
     //        printf("ERROR: pushing job while in seq mode ");
@@ -338,7 +339,7 @@ job_type *pull_job(int home_machine) {
       //      unlock(&total_jobs_mutex);
       //      if (total_jobs <= 0) {
       if (no_more_jobs_in_system(home_machine)) {
-	printf("Signalling root machnine since totaljobs is zero\n");
+	//	printf("Signalling root machnine since totaljobs is zero\n");
 	//	pthread_cond_signal(&job_available[root->board]);
 	pthread_cond_signal(&global_job_available);
 	// send signal naar root home machnien;
@@ -346,7 +347,7 @@ job_type *pull_job(int home_machine) {
       //      assert(total_jobs >= 0);
       job_type *job = queue[home_machine][top[home_machine][jobt]--][jobt];
       //      check_job_consistency();
-#define PRINT_PULLS
+#undef PRINT_PULLS
 #ifdef PRINT_PULLS
       printf("    M:%d P:%d %s TOP[%d]:%d PULL  [%d] <%d:%d> jobs: %d\n", 
 	     job->node->board, job->node->path, 
