@@ -259,12 +259,16 @@ int main(int argc, char *argv[]) {
   }
   printf("Hello from ParAB with %d machine%s and %d children in par in queue\n", N_MACHINES, N_MACHINES==1?"":"s", n_par);
   for (int i = 0; i < N_MACHINES; i++) {
+    global_selects[i] = 0;
+    global_leaf_eval[i] = 0;
+    global_updates[i] = 0;
+    global_downward_aborts[i] = 0;
     for (int j = 1; j < JOB_TYPES; j++) {
       top[i][j] = 0;
       max_q_length[i][j] = 0;
     }
     pthread_mutex_init(&jobmutex[i], NULL);
-    //    pthread_cond_init(&job_available[i], NULL);
+    pthread_cond_init(&job_available[i], NULL);
     global_no_jobs[i] = 0;
     //    jobmutex[i] = PTHREAD_MUTEX_INITIALIZER;
   }
@@ -301,10 +305,10 @@ int main(int argc, char *argv[]) {
 
   //  print_tree(root, min(3, TREE_DEPTH));
   print_q_stats();
-  printf("Selects: %d\n", global_selects);
-  printf("Leaf Evals: %d\n", global_leaf_eval);
-  printf("Updates: %d\n", global_updates);
-  printf("Downward parallel aborted searches: %d\n", global_downward_aborts);
+  printf("SumSelects: %d\n", sum_global_selects);
+  printf("SumLeaf Evals: %d\n", sum_global_leaf_eval);
+  printf("SumUpdates: %d\n", sum_global_updates);
+  printf("SumDownward parallel aborted searches: %d\n", sum_global_downward_aborts);
   //  print_unorderedness();
   /*
   for (int i = 0; i < N_MACHINES; i++) {
@@ -322,12 +326,34 @@ void create_tree(int d) {
 
 void print_q_stats() {
   for (int i=0; i < N_MACHINES; i++) {
+    sum_global_selects += global_selects[i];
+    sum_global_leaf_eval += global_leaf_eval[i];
+    sum_global_updates += global_updates[i];
+    sum_global_downward_aborts += global_downward_aborts[i];
+    printf("[%d,%d,%d,%d]\n", global_selects[i], global_leaf_eval[i], global_updates[i], global_downward_aborts[i]);
     for (int j=1; j < JOB_TYPES; j++) {
       printf("Max Q length %d [%d,%d]\n", max_q_length[i][j], i, j);
     }
   }
 }
 
+void print_queues() {
+  printf("********* %d ********\n", total_jobs);
+  for (int i=0; i < N_MACHINES; i++) {
+    for (int j=1; j < JOB_TYPES; j++) {
+      printf("\ntop[%d][%d]: %d      ", i,j, top[i][j]);
+      for (int k=1; queue[i][k][j] && queue[i][k][j]->node && k <= top[i][j] ; k++) {
+	printf("%d [%d] <%d,%d>, ", 
+	       queue[i][k][j]->node->path, 
+	       queue[i][k][j]->type_of_job,
+	       queue[i][k][j]->node->a, 
+	       queue[i][k][j]->node->b);
+      }
+    }
+    printf("\n");
+  }
+  printf("%%%%%%%%%%%%%%%%\n", total_jobs);
+}
 
 
 // simple, new leaf is initialized with a wide window

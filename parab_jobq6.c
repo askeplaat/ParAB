@@ -92,7 +92,7 @@ int all_empty_and_live_root() {
   int home = root->board;
   lock(&jobmutex[home]);
   int e =  total_jobs <= 0 && live_node(root);
-  unlock(&jobmutex[home]);
+  (&jobmutex[home]);
   return e;
 }
 */
@@ -129,6 +129,8 @@ it can happend that total_jobs is 1 while all queueus are empty(i), or total_job
 the latter is just a surious extra job to process, which will find out the the root is already closed. nothing serious.
 so we must make sure that when all queus are empty, that total_jobs truly is 0 (especially when the root is still live, since hten we need to continue searching, the root must spawn a select).
 we could do a stepped search. first look at local q, if empt, then ask others if they are empty
+
+Does global_in_wait allow a lock-free scheme?
     */
     lock(&donemutex);
     if (global_done) {
@@ -136,24 +138,33 @@ we could do a stepped search. first look at local q, if empt, then ask others if
     }
     unlock(&donemutex);      
 
-
-    //    lock(&jobmutex[i]); 
+#ifdef LOCAL_Q
+    lock(&jobmutex[i]); 
+#else
     lock(&global_jobmutex); 
+#endif
     //    printf("M:%d locked. jobs: %d\n", i, total_jobs);
-
-    /*
-nu heb ik alleen mijn eigen q gelockt.
-andere queues hebben vrij spel.
-total jobs is nu onbetrouwaar
-ik moet alle queues locken...
-    */
+    //    print_queues();
 
     if (live_node(root) && !global_done) {
-      if (i == root->board && global_in_wait == N_MACHINES-1 && empty_jobs(i)  /*total_jobs <= 0*/)  {
-	//	printf("PUSH root select <%d,%d> \n", root->a, root->b);
+      //      if (i == root->board && global_in_wait == N_MACHINES-1 && empty_jobs(i)  /*total_jobs <= 0*/)  {
+      // if I am the root machine and all other machines are waiting for jobs and I am empty then insert extra root job into the system
+      if (i == root->board && global_in_wait == N_MACHINES-1 && no_more_jobs_in_system(i)  /*total_jobs <= 0*/)  {
+	assert(empty_jobs(i));
+	assert(no_more_jobs_in_system(i));
+	/*
+	  vraag: waarom? waarom blijft 1 op empty? moet dat geen all_empty zijn in plaats van 
+empty?
+dus pas de root gaan schedulen als er geen jobs meer in eht hele systeem zijn?
+total_jobs == 0 en zo?
+	*/
+	//     	printf("M:%d. PUSH root select <%d,%d> \n", i, root->a, root->b);
 	// no locks. shcedule does locking of push, add_to_queue does no locking of push
 	add_to_queue(new_job(root, SELECT)); 
+	//addtoqueue forgets to signal. only schedule has the signal. addtoqueue does not. Therefore other machiens that are waiting for waork in a condwait will not be woken up
+	pthread_cond_signal(&job_available[i]);
 	assert(!no_more_jobs_in_system(i));
+	assert(!empty_jobs(i));
       }
       //      assert(!no_more_jobs_in_system(i));
 
@@ -168,41 +179,49 @@ ik moet alle queues locken...
       //      assert(i!=root->board || !empty_jobs(i) || !no_more_jobs_in_system(i));
       //      no_more_jobs_in_system klotp niet, die loopt achter. als je naar in_wait kijkt heb je een scherper beeld, ook de gegene die verwerkt worden tel je dan mee
       //      nee klopt niet. root mag wel leeg zijn, als er elders maar jobs zijn
-
       // als alle anderen in wait hangen, moet root machine een job hebben
       // ofwel niet iedereen hangt in een wait, ofwel root dood
       assert(global_in_wait < N_MACHINES || !live_node(root));
       assert(global_in_wait < N_MACHINES || !empty_jobs(i) || !live_node(root));
       while (i!=root->board && empty_jobs(i) && !global_done && live_node(root) && global_in_wait < N_MACHINES-1) { 
-	if (i!=root->board) {
-	  global_in_wait++; // is this a count of threads or a count of nodes? threads
-	}
-	//	printf("M:%d Waiting (root@%d) jobs:%d. in wait: %d\n", i, root->board, total_jobs, global_in_wait);
+	//	if (i!=root->board) {
+	global_in_wait++; // is this a count of threads or a count of nodes? threads
+	  //}
+	//       	printf("M:%d Waiting (root@%d) jobs:%d. in wait: %d\n", i, root->board, total_jobs, global_in_wait);
 	assert(live_node(root));
 	//	assert(!no_more_jobs_in_system(i));
-
+	assert(global_in_wait < N_MACHINES);
 	//moet de job_available ook globaal?
-	pthread_cond_wait(&global_job_available, &global_jobmutex); // root closed must release block 
+#ifdef LOCAL_Q
+	pthread_cond_wait(&job_available[i], &jobmutex[i]); // root closed must release block 
+#else
+	pthread_cond_wait(&job_available[i], &global_jobmutex); // root closed must release block 
+#endif
 	//	pthread_cond_wait(&job_available[i], &jobmutex[i]); // root closed must release block 
-	if (i!=root->board) {
+	//	if (i!=root->board) {
 	  global_in_wait--;
-	}
+	  //	}
       }
 #endif
 	//      }   
     
       job = pull_job(i);
     }
-    //    printf("M:%d unlock. job: %d <%d,%d> totaljobs: %d. done: %d. liveroot: %d\n", i, job, root->a, root->b, total_jobs, global_done, live_node(root));
+    //    printf("M:%d unlock. job: %d type: [%d] <%d,%d> totaljobs: %d. done: %d. liveroot: %d\n", i, job, job?job->type_of_job:0, root->a, root->b, total_jobs, global_done, live_node(root));
+#ifdef LOCAL_Q
+    unlock(&jobmutex[i]);
+#else
     unlock(&global_jobmutex);
-    //    unlock(&jobmutex[i]);
+#endif
     
     if (job) {
+      //      printf("M:%d lock tree\n", i);
       //            lock_node(job->node);
-      //      lock(&treemutex);
+      lock(&treemutex);
       process_job(job);
-      //      unlock(&treemutex); 
+      unlock(&treemutex); 
 	//    unlock_node(job->node);
+      //      printf("M:%d unlock tree\n", i);
     }     
     
     //    unlock(&jobmutex[i]);
@@ -231,8 +250,8 @@ ik moet alle queues locken...
   // root is solved. release all condition variables
   printf("M:%d. Finished. Broadcast all threads release cond wait. done: %d. liveroot: %d\n", i, global_done, live_node(root));
   for (int i = 0; i < N_MACHINES; i++) {
-    //    pthread_cond_broadcast(&job_available[i]);
-    pthread_cond_broadcast(&global_job_available);
+    pthread_cond_broadcast(&job_available[i]);
+    //    pthread_cond_broadcast(&global_job_available);
   }
 
   printf("M:%d. Finished. Queue is empty or root is solved. jobs: %d. root: <%d:%d> \n", i, total_jobs, root->a, root->b);
@@ -244,15 +263,23 @@ void schedule(node_type *node, int t) {
     int home_machine = node->board;
     //    printf("LOCK machine %d (addtoq) p:%d\n", home_machine, node->path);
 
+#ifdef LOCAL_Q
+    lock(&(jobmutex[home_machine]));
+#else
     lock(&(global_jobmutex));
+#endif
     int was_empty = empty_jobs(home_machine);  
     add_to_queue(new_job(node, t));
+#ifdef LOCAL_Q
+    unlock(&(jobmutex[home_machine]));  //  printf("M:%d pushed %d [%d.%d.%d.%d]\n", home_machine, job->node->path,  top[home_machine][SELECT],  top[home_machine][UPDATE],  top[home_machine][PLAYOUT],  top[home_machine][BOUND_DOWN]);
+#else
     unlock(&(global_jobmutex));  //  printf("M:%d pushed %d [%d.%d.%d.%d]\n", home_machine, job->node->path,  top[home_machine][SELECT],  top[home_machine][UPDATE],  top[home_machine][PLAYOUT],  top[home_machine][BOUND_DOWN]);
+#endif
 
     if (was_empty) {
       //      printf("Signalling machine %d for path %d type:[%d]. in wait: %d\n", home_machine, node->path, t, global_in_wait);
-      //      pthread_cond_signal(&job_available[home_machine]);
-      pthread_cond_signal(&global_job_available);
+      pthread_cond_signal(&job_available[home_machine]);
+      //   pthread_cond_signal(&global_job_available[home_machine]); //how do we know that we signal the correct machine?
     }
   } 
 }
@@ -340,8 +367,8 @@ job_type *pull_job(int home_machine) {
       //      if (total_jobs <= 0) {
       if (no_more_jobs_in_system(home_machine)) {
 	//	printf("Signalling root machnine since totaljobs is zero\n");
-	//	pthread_cond_signal(&job_available[root->board]);
-	pthread_cond_signal(&global_job_available);
+	pthread_cond_signal(&job_available[root->board]);
+	//pthread_cond_signal(&global_job_available);
 	// send signal naar root home machnien;
       }
       //      assert(total_jobs >= 0);

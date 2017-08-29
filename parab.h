@@ -11,14 +11,14 @@
  * defines
  */
 
-#define N_MACHINES 1
-#define TREE_WIDTH 2
-#define TREE_DEPTH 2
+#define N_MACHINES 9
+#define TREE_WIDTH 5
+#define TREE_DEPTH 5
 
-#define SEQ_DEPTH 1
+#define SEQ_DEPTH 3
  
 
-#define N_JOBS 1000000  // 100 jobs in job queue
+#define N_JOBS 5000000  // 100 jobs in job queue
 
 #define INFTY  99999
 
@@ -34,13 +34,14 @@
 #define TRUE 1
 #define FALSE 0
 
-#define SAFETY_COUNTER_INIT 10000000
+#define SAFETY_COUNTER_INIT 100000000
 
 
 
 // use Parallel Unorderedness to determine how much parallelism there should be scheduled
 #undef PUO
 #define LOCKS
+#define LOCAL_Q
 
 
 /*
@@ -84,17 +85,21 @@ extern int top[N_MACHINES][JOB_TYPES];
 extern int total_jobs;
 extern pthread_mutex_t jobmutex[N_MACHINES];
 extern pthread_mutex_t global_jobmutex;
-//extern pthread_cond_t job_available[N_MACHINES];
-extern pthread_cond_t global_job_available;
+extern pthread_cond_t job_available[N_MACHINES];
+//extern pthread_cond_t global_job_available;
 extern pthread_mutex_t treemutex;
 extern pthread_mutex_t donemutex;
 extern pthread_mutex_t global_queues_mutex;
 extern int max_q_length[N_MACHINES][JOB_TYPES];
 extern int n_par;
-extern int global_selects;
-extern int global_updates;
-extern int global_leaf_eval;
-extern int global_downward_aborts;
+extern int global_selects[N_MACHINES];
+extern int global_updates[N_MACHINES];
+extern int global_leaf_eval[N_MACHINES];
+extern int global_downward_aborts[N_MACHINES];
+extern int sum_global_selects;
+extern int sum_global_updates;
+extern int sum_global_leaf_eval;
+extern int sum_global_downward_aborts;
 extern double global_unorderedness_seq_x[TREE_DEPTH];
 extern int global_unorderedness_seq_n[TREE_DEPTH];
 extern int global_no_jobs[N_MACHINES];
@@ -106,6 +111,7 @@ extern int global_in_wait;
  */
 
 void print_q_stats();
+void print_queues();
 int lock(pthread_mutex_t *mutex);
 int unlock(pthread_mutex_t *mutex);
 int lock_node(node_type *n);

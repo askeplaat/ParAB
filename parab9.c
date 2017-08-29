@@ -61,24 +61,31 @@
  ** GLOBAL VARIABLES      **
  **************************/
 
+ 
 node_type *root = NULL;
 job_type *queue[N_MACHINES][N_JOBS][JOB_TYPES];
 int top[N_MACHINES][JOB_TYPES];
 int total_jobs = 0;
 pthread_mutex_t jobmutex[N_MACHINES];
 pthread_mutex_t global_jobmutex = PTHREAD_MUTEX_INITIALIZER;
-//pthread_cond_t job_available[N_MACHINES];
-pthread_cond_t global_job_available = PTHREAD_COND_INITIALIZER;
+pthread_cond_t job_available[N_MACHINES];
+//pthread_cond_t global_job_available = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t treemutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t donemutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t global_queues_mutex = PTHREAD_MUTEX_INITIALIZER;
 int max_q_length[N_MACHINES][JOB_TYPES];
 int n_par = 1;
 
-int global_selects = 0;
-int global_leaf_eval = 0;
-int global_updates = 0;
-int global_downward_aborts = 0;
+int sum_global_selects = 0;
+int sum_global_leaf_eval = 0;
+int sum_global_updates = 0;
+int sum_global_downward_aborts = 0;
+
+int global_selects[N_MACHINES];
+int global_leaf_eval[N_MACHINES];
+int global_updates[N_MACHINES];
+int global_downward_aborts[N_MACHINES];
+
 int global_no_jobs[N_MACHINES];
 int global_done = FALSE;
 int global_in_wait = 0;
@@ -95,7 +102,7 @@ int global_unorderedness_seq_n[TREE_DEPTH];
 // but only one node at a time, since each node has its own home machine
 // precondition: my bounds 
 void do_select(node_type *node) {
-  global_selects++;
+  global_selects[node->board]++;
   if (node && live_node(node)) {
 
     /* 
@@ -103,12 +110,12 @@ void do_select(node_type *node) {
      */
     
     compute_bounds(node);
-    /*
+    /*    
     printf("M%d P%d: %s SELECT d:%d  ---   <%d:%d>   ", 
 	   node->board, node->path, node->maxormin==MAXNODE?"+":"-",
 	   node->depth,
 	   node->a, node->b);
-    */    
+    */
     if (leaf_node(node) && live_node(node)) { // depth == 0; frontier, do playout/eval
       //      printf("M:%d PLAYOUT\n", node->board);
       schedule(node, PLAYOUT);
@@ -146,8 +153,8 @@ void do_select(node_type *node) {
 	//	printf("PUO: %d par %d/%d\n", pp, node->path, flc->path);
 	// schedule many children in parallel
 	for (int p = 0; p < pp; p++) {
-	  //	 	  printf("M:%d P:%d par child:%d/%d\n", 
-	  //	 		 node->board, node->path, p, n_par);
+	  //	  	 	  printf("M:%d P:%d par child:%d/%d\n", 
+	 //	  	 		 node->board, node->path, p, n_par);
 	  node_type *child = first_live_child(node, p+1); 
 	  if (child && !seq(child)) {
 	    //	    printf("child: P:%d\n", child->path);
@@ -293,8 +300,11 @@ node_type * first_live_child(node_type *node, int p) {
 // just std ab evaluation. no mcts playout
 void do_playout(node_type *node) {
   node->a = node->b = node->lb = node->ub = evaluate(node);
-  //  printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
-  //  	 node->board, node->path, node->depth, node->a);
+  /*
+  printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
+   	 node->board, node->path, node->depth, node->a);
+  */
+
   // can we do this? access a pointer of a node located at another machine?
   //  schedule(node->parent, UPDATE, node->lb, node->ub);
   if (node->parent) {
@@ -306,7 +316,7 @@ void do_playout(node_type *node) {
 
 int evaluate(node_type *node) {
   //  return node->path;
-  global_leaf_eval++;
+  global_leaf_eval[node->board]++;
   srand(node->path); // create deterministic leaf values
   return rand() % (INFTY/8) - (INFTY/16);
 }
@@ -322,7 +332,7 @@ void do_update(node_type *node) {
   if (node && node->best_child) {
     int continue_updating = 0;
     
-    global_updates ++;
+    global_updates[node->board]++;
 
     if (node->maxormin == MAXNODE) {
       int old_a = node->a;
@@ -400,8 +410,8 @@ void downward_update_children(node_type *node) {
       if (continue_update) {
 	schedule(child, BOUND_DOWN);
 	if (was_live && dead_node(child)) {
-	  //	  printf("DOWN: %d <%d:%d>\n", child->path, child->a, child->b);
-      	  global_downward_aborts++;
+	  //	  	  printf("DOWN: %d <%d:%d>\n", child->path, child->a, child->b);
+      	  global_downward_aborts[node->board]++;
 	  //
 	}
       }
