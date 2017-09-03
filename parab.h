@@ -11,9 +11,9 @@
  * defines
  */
 
-#define N_MACHINES 9
-#define TREE_WIDTH 5
-#define TREE_DEPTH 5
+#define N_MACHINES 2
+#define TREE_WIDTH 7
+#define TREE_DEPTH 7
 
 #define SEQ_DEPTH 3
  
@@ -41,7 +41,7 @@
 // use Parallel Unorderedness to determine how much parallelism there should be scheduled
 #undef PUO
 #define LOCKS
-#define LOCAL_Q
+#undef LOCAL_Q
 
 
 /*
@@ -96,6 +96,7 @@ extern int global_selects[N_MACHINES];
 extern int global_updates[N_MACHINES];
 extern int global_leaf_eval[N_MACHINES];
 extern int global_downward_aborts[N_MACHINES];
+extern int global_empty;
 extern int sum_global_selects;
 extern int sum_global_updates;
 extern int sum_global_leaf_eval;
