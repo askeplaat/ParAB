@@ -80,12 +80,12 @@ int sum_global_selects = 0;
 int sum_global_leaf_eval = 0;
 int sum_global_updates = 0;
 int sum_global_downward_aborts = 0;
+int global_empty_machines = 0;
 
 int global_selects[N_MACHINES];
 int global_leaf_eval[N_MACHINES];
 int global_updates[N_MACHINES];
 int global_downward_aborts[N_MACHINES];
-int global_empty = 0;
 
 int global_no_jobs[N_MACHINES];
 int global_done = FALSE;

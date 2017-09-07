@@ -11,9 +11,9 @@
  * defines
  */
 
-#define N_MACHINES 2
-#define TREE_WIDTH 7
-#define TREE_DEPTH 7
+#define N_MACHINES 5
+#define TREE_WIDTH 5
+#define TREE_DEPTH 5
 
 #define SEQ_DEPTH 3
  
@@ -80,6 +80,7 @@ typedef struct job job_type;
  */
 
 extern node_type *root;
+extern int global_empty_machines;
 extern job_type *queue[N_MACHINES][N_JOBS][JOB_TYPES];
 extern int top[N_MACHINES][JOB_TYPES];
 extern int total_jobs;
@@ -96,7 +97,6 @@ extern int global_selects[N_MACHINES];
 extern int global_updates[N_MACHINES];
 extern int global_leaf_eval[N_MACHINES];
 extern int global_downward_aborts[N_MACHINES];
-extern int global_empty;
 extern int sum_global_selects;
 extern int sum_global_updates;
 extern int sum_global_leaf_eval;

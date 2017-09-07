@@ -251,6 +251,7 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
   printf("\n\n\n\n\n");
+  global_empty_machines=0;
   char *alg_choice = argv[1];
   n_par = atoi(argv[2]);
   if (n_par > TREE_WIDTH) {
