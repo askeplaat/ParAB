@@ -11,9 +11,9 @@
  * defines
  */
 
-#define N_MACHINES 5
-#define TREE_WIDTH 5
-#define TREE_DEPTH 5
+#define N_MACHINES 10
+#define TREE_WIDTH 6
+#define TREE_DEPTH 6
 
 #define SEQ_DEPTH 3
  
@@ -41,7 +41,10 @@
 // use Parallel Unorderedness to determine how much parallelism there should be scheduled
 #undef PUO
 #define LOCKS
-#undef LOCAL_Q
+#undef LOCAL_Q 
+
+#define lOCAL_LOCK
+
 
 
 /*
@@ -169,3 +172,4 @@ void do_bound_down(node_type *node);
 void downward_update_children(node_type *node);
 void store_node(node_type *node); 
 void update_bounds_down(node_type *node, int a, int b);
+void check_consistency_empty();

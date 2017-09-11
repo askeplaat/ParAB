@@ -80,7 +80,7 @@ int sum_global_selects = 0;
 int sum_global_leaf_eval = 0;
 int sum_global_updates = 0;
 int sum_global_downward_aborts = 0;
-int global_empty_machines = 0;
+int global_empty_machines = N_MACHINES;
 
 int global_selects[N_MACHINES];
 int global_leaf_eval[N_MACHINES];

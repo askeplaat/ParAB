@@ -23,27 +23,29 @@ job_type *new_job(node_type *n, int t) {
 
 int lock(pthread_mutex_t *mutex) {
 #ifdef LOCKS
+  //  printf("LOCK   %p\n", mutex);
   pthread_mutex_lock(mutex);
 #endif
 }
 int unlock(pthread_mutex_t *mutex) {
 #ifdef LOCKS
+  //  printf("UNLOCK %p\n", mutex);
   pthread_mutex_unlock(mutex);
 #endif
 }
-
+/*
 int lock_node(node_type *node) {
   if (node) {
-    lock(&node->nodelock);
+    lock(&node->nodelock);  // node
     if (node->parent) {
-      lock(&node->parent->nodelock);
+      lock(&node->parent->nodelock);  // node
     }
 
     if (0&&node->children) {
       for (int ch = 0; ch < node->n_children && node->children[ch]; ch++) {
 	node_type *child = node->children[ch]; 
 	printf("l %d ", node->path);
-	lock(&child->nodelock);
+	lock(&child->nodelock);  // node
 	printf(" +\n", node->path);
       }
     }
@@ -52,19 +54,20 @@ int lock_node(node_type *node) {
 
 int unlock_node(node_type *node) {
   if (node) {
-    unlock(&node->nodelock);
+    unlock(&node->nodelock);  // node
     if (node->parent) {
-      unlock(&node->parent->nodelock);
+      unlock(&node->parent->nodelock);  // node
     }
 
     if (0&&node->children) {
       for (int ch = 0; ch < node->n_children && node->children[ch]; ch++) {
 	node_type *child = node->children[ch]; 
-	unlock(&child->nodelock);
+	unlock(&child->nodelock);  // node
       }
     }
   }
 }
+*/
 
 /************************
  *** NODE             ***
@@ -251,7 +254,7 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
   printf("\n\n\n\n\n");
-  global_empty_machines=0;
+  global_empty_machines=N_MACHINES;
   char *alg_choice = argv[1];
   n_par = atoi(argv[2]);
   if (n_par > TREE_WIDTH) {

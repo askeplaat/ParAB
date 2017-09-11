@@ -42,29 +42,30 @@ double suo(int d) {
 int puo(node_type *node) {
   return child_number(node->path) > suo(node->depth);
 }
-
+/*
 int not_empty(int top, int home) {
-  lock(&jobmutex[home]);
+  lock(&jobmutex[home]);  // empty
   int t = top > 0;
-  unlock(&jobmutex[home]);
+  unlock(&jobmutex[home]); // // empty
   return t;
 }
 
 int empty(int top, int home) {
   return !not_empty(top, home);
 }
-
+*/
 int empty_jobs(int home) {
-  lock(&jobmutex[home]);
+
   int x = top[home][SELECT] < 1 && 
     top[home][UPDATE] < 1 &&
     top[home][BOUND_DOWN] < 1 &&
     top[home][PLAYOUT] < 1;
-  unlock(&jobmutex[home]);
+
   return x;
 }
 
 // this should be atomic over all job queues. needs global lock, over all queues
+/*
 int no_more_jobs_in_system(int home) {
   lock(&global_queues_mutex);
   if (!empty_jobs(home)) {
@@ -81,21 +82,22 @@ int no_more_jobs_in_system(int home) {
   unlock(&global_queues_mutex);
   return TRUE;
 }
+*/
 
 /*
 int not_empty_and_live_root() {
   int home = root->board;
-  lock(&jobmutex[home]);
+  lock(&jobmutex[home]);  // empty
   int e =  total_jobs > 0 && live_node(root);
-  unlock(&jobmutex[home]);
+  unlock(&jobmutex[home]);  // empty
   return e;
 }
 
 int all_empty_and_live_root() {
   int home = root->board;
-  lock(&jobmutex[home]);
+  lock(&jobmutex[home]);  // empty
   int e =  total_jobs <= 0 && live_node(root);
-  (&jobmutex[home]);
+  (&jobmutex[home]);  // empty
   return e;
 }
 */
@@ -133,7 +135,7 @@ void do_work_queue(int i) {
 
 while live(root) {
   if me==rootmachine && global_empty() then { push select root }
-  else job = pull(me) *pull may block*; process(job) *which includes pushes of new jobs*;
+  else job = pullme) *pull may block*; process(job) *which includes pushes of new jobs*;
 }
 pull(){
 if empty(me) then { global_empty++; return null or condwait}
@@ -150,32 +152,31 @@ global_empty also (decrement)
 
     */
 
+    //    printf("global empty machines: %d\n", global_empty_machines);
+
     if (i == root->board && global_empty_machines >= N_MACHINES) {
       add_to_queue(new_job(root, SELECT)); 
     }
 
     job = pull_job(i);
-    //      printf("Pulled job\n");
      
     if (job) {
-      //      printf("M:%d lock tree\n", i);
-      //            lock_node(job->node);
-           lock(&treemutex);
+      //         lock_node(job->node);
+      //      printf("M:%d tree    ", i);
+          lock(&treemutex);
       process_job(job);
             unlock(&treemutex); 
-	//    unlock_node(job->node);
-      //      printf("M:%d unlock tree\n", i);
+      //          unlock_node(job->node);
     }     
-    
-    //    unlock(&jobmutex[i]);
-
+    /*
+    lock(&global_jobmutex); // check
+    check_consistency_empty();
+    unlock(&global_jobmutex); // check
+    */
     global_done |= !live_node(root);
-    //    global_done |= total_jobs <= 0;
     if (global_done) {
-
       break;
     }
-
   } // while 
 
   if (safety_counter <= 0) {
@@ -184,9 +185,7 @@ global_empty also (decrement)
     //    printf("M:%d safety counter: %d. root is at machine: %d\n", i, safety_counter, root->board);
   }
 
-  //  lock(&donemutex);
   global_done = 1;
-  //  unlock(&donemutex);
 
   printf("M:%d. Finished. Queue is empty or root is solved. jobs: %d. root: <%d:%d> \n", i, total_jobs, root->a, root->b);
 }
@@ -195,26 +194,16 @@ void schedule(node_type *node, int t) {
   if (node) {
     // send to remote machine
     int home_machine = node->board;
-    //    printf("LOCK machine %d (addtoq) p:%d\n", home_machine, node->path);
 
-#ifdef LOCAL_Q
-    lock(&(jobmutex[home_machine]));
-#else
-    lock(&(global_jobmutex));
-#endif
     int was_empty = empty_jobs(home_machine);  
     add_to_queue(new_job(node, t));
-#ifdef LOCAL_Q
-    unlock(&(jobmutex[home_machine]));  //  printf("M:%d pushed %d [%d.%d.%d.%d]\n", home_machine, job->node->path,  top[home_machine][SELECT],  top[home_machine][UPDATE],  top[home_machine][PLAYOUT],  top[home_machine][BOUND_DOWN]);
-#else
-    unlock(&(global_jobmutex));  //  printf("M:%d pushed %d [%d.%d.%d.%d]\n", home_machine, job->node->path,  top[home_machine][SELECT],  top[home_machine][UPDATE],  top[home_machine][PLAYOUT],  top[home_machine][BOUND_DOWN]);
-#endif
-
+    /*
     if (was_empty) {
       //      printf("Signalling machine %d for path %d type:[%d]. in wait: %d\n", home_machine, node->path, t, global_in_wait);
       pthread_cond_signal(&job_available[home_machine]);
       //   pthread_cond_signal(&global_job_available[home_machine]); //how do we know that we signal the correct machine?
     }
+    */
   } 
 }
 
@@ -241,7 +230,12 @@ void add_to_queue(job_type *job) {
 */
 
 void push_job(int home_machine, job_type *job) {
-  lock(&jobmutex[home_machine]);
+  //  printf("M:%d PUSH   ", home_machine);
+#ifdef LOCAL_LOCK
+  lock(&jobmutex[home_machine]); // push
+#else
+  lock(&global_jobmutex); // push
+#endif
   total_jobs++;
   if (empty_jobs(home_machine) && global_empty_machines > 0) {
     // I was empty, not anymore
@@ -253,7 +247,11 @@ void push_job(int home_machine, job_type *job) {
   queue[home_machine][++(top[home_machine][jobt])][jobt] = job;
   max_q_length[home_machine][jobt] = 
     max(max_q_length[home_machine][jobt], top[home_machine][jobt]);
-  unlock(&jobmutex[home_machine]);
+#ifdef LOCAL_LOCK
+  unlock(&jobmutex[home_machine]); // push
+#else
+  unlock(&global_jobmutex); // push
+#endif
 
 #undef PRINT_PUSHES
 #ifdef PRINT_PUSHES
@@ -272,6 +270,17 @@ void push_job(int home_machine, job_type *job) {
   //  print_queue(queue[home_machine], top[home_machine]);
 }
 
+void check_consistency_empty() {
+  int e = 0;
+  for (int i = 0; i < N_MACHINES; i++) {
+    e += empty_jobs(i);
+  }
+  if (e != global_empty_machines) {
+    printf("ERROR: inconsistency empty jobs %d %d\n", global_empty_machines, e);
+    exit(0);
+  }
+}
+
 void check_job_consistency() {
   int j = 0;
   for (int i = 0; i < N_MACHINES; i++) {
@@ -288,26 +297,29 @@ void check_job_consistency() {
 */
 
 job_type *pull_job(int home_machine) {
-  lock(&jobmutex[home_machine]);
   //  printf("M:%d Pull   ", home_machine);
+#ifdef LOCAL_LOCK
+  lock(&jobmutex[home_machine]);  // pull
+#else
+  lock(&global_jobmutex);  // pull
+#endif
   int jobt = BOUND_DOWN;
   // first try bound_down, then try update, then try select
   while (jobt > 0) {
     if (top[home_machine][jobt] > 0) {
-      //      lock(&total_jobs_mutex);
       total_jobs--;
-      //      unlock(&total_jobs_mutex);
-      //      if (total_jobs <= 0) {
+      /*
       if (no_more_jobs_in_system(home_machine)) {
-	//	printf("Signalling root machnine since totaljobs is zero\n");
+
 	pthread_cond_signal(&job_available[root->board]);
 	//pthread_cond_signal(&global_job_available);
 	// send signal naar root home machnien;
       }
+      */
       //      assert(total_jobs >= 0);
       job_type *job = queue[home_machine][top[home_machine][jobt]--][jobt];
       if (empty_jobs(home_machine)) {
-	//	printf("M:%d. incr global_empty %d\n", home_machine, global_empty_machines);
+	//	printf("M:%d will be empty. incr global_empty %d\n", home_machine, global_empty_machines);
 	global_empty_machines++;
       }
       //      check_job_consistency();
@@ -319,12 +331,20 @@ job_type *pull_job(int home_machine) {
 	     job->node->board, top[job->node->board][jobt], job->type_of_job,
 	     job->node->a, job->node->b, total_jobs);
 #endif
-      unlock(&jobmutex[home_machine]);
+#ifdef LOCAL_LOCK
+      unlock(&jobmutex[home_machine]);  // pull
+#else
+      unlock(&global_jobmutex);  // pull
+#endif
       return job;
     }
     jobt --;
   }
-  unlock(&jobmutex[home_machine]);
+#ifdef LOCAL_LOCK
+  unlock(&jobmutex[home_machine]); // pull
+#else
+  unlock(&global_jobmutex); // pull
+#endif
   global_no_jobs[home_machine]++;
   return NULL;
 }
