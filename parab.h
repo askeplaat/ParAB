@@ -12,13 +12,13 @@
  */
 
 #define N_MACHINES 10
-#define TREE_WIDTH 6
-#define TREE_DEPTH 6
+#define TREE_WIDTH 7
+#define TREE_DEPTH 7
 
-#define SEQ_DEPTH 3
+#define SEQ_DEPTH 4
  
 
-#define N_JOBS 5000000  // 100 jobs in job queue
+#define N_JOBS 500000  // 100 jobs in job queue
 
 #define INFTY  99999
 
@@ -39,7 +39,7 @@
 
 
 // use Parallel Unorderedness to determine how much parallelism there should be scheduled
-#undef PUO
+#define PUO
 #define LOCKS
 #undef LOCAL_Q 
 
@@ -84,8 +84,13 @@ typedef struct job job_type;
 
 extern node_type *root;
 extern int global_empty_machines;
+#ifdef GLOBAL_QUEUE
 extern job_type *queue[N_MACHINES][N_JOBS][JOB_TYPES];
 extern int top[N_MACHINES][JOB_TYPES];
+#else
+extern job_type *local_queue[N_MMACHINES][N_MACHINES][N_JOBS];
+extern int local_top[N_MACHINES][N_MACHINES];
+#endif
 extern int total_jobs;
 extern pthread_mutex_t jobmutex[N_MACHINES];
 extern pthread_mutex_t global_jobmutex;
@@ -146,7 +151,7 @@ node_type *next_brother(node_type *node);
 int main(int argc, char *argv[]);
 void print_tree(node_type *node, int d);
 void create_tree(int d);
-void push_job(int home_machine, job_type *job);
+void push_job(int my_id, int home_machine, job_type *job);
 job_type *pull_job(int home_machine);
 void mk_children(node_type *n, int d);
 int unexpanded_node(node_type *node);
@@ -160,15 +165,15 @@ void do_work_queue(int i);
 int not_empty_and_live_root();
 int empty(int top, int home);
 int not_empty(int top, int home);
-void add_to_queue(job_type *job);
-void process_job(job_type *job);
+void add_to_queue(int my_id, job_type *job);
+void process_job(int my_id, job_type *job);
 void schedule(node_type *node, int t);
-void do_select(node_type *node);
+void do_select(int my_id, node_type *node);
 node_type * first_live_child(node_type *node, int p);
-void do_playout(node_type *node);
+void do_playout(int my_id, node_type *node);
 int evaluate(node_type *node);
-void do_update(node_type *node);
-void do_bound_down(node_type *node);
+void do_update(int my_id, node_type *node);
+void do_bound_down(int my_id, node_type *node);
 void downward_update_children(node_type *node);
 void store_node(node_type *node); 
 void update_bounds_down(node_type *node, int a, int b);

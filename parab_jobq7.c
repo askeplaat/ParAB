@@ -161,12 +161,11 @@ global_empty also (decrement)
     job = pull_job(i);
      
     if (job) {
-      //         lock_node(job->node);
-      //      printf("M:%d tree    ", i);
-          lock(&treemutex);
-      process_job(job);
-            unlock(&treemutex); 
-      //          unlock_node(job->node);
+      //      lock_node(job->node);
+      //          lock(&treemutex);
+      process_job(i, job);
+      //            unlock(&treemutex); 
+      //      unlock_node(job->node);
     }     
     /*
     lock(&global_jobmutex); // check
@@ -208,7 +207,7 @@ void schedule(node_type *node, int t) {
 }
 
 // which q? one per processor
-void add_to_queue(job_type *job) {
+void add_to_queue(int my_id, job_type *job) {
   int home_machine = job->node->board;
   int jobt = job->type_of_job;
   if (home_machine >= N_MACHINES) {
@@ -221,7 +220,7 @@ void add_to_queue(job_type *job) {
     exit(1);
   }
 
-  push_job(home_machine, job);
+  push_job(my_id, home_machine, job);
 }
 
 
@@ -229,7 +228,8 @@ void add_to_queue(job_type *job) {
 ** PUSH JOB
 */
 
-void push_job(int home_machine, job_type *job) {
+// home_machine is the machine at which the node should be stored
+void push_job(int my_id, int home_machine, job_type *job) {
   //  printf("M:%d PUSH   ", home_machine);
 #ifdef LOCAL_LOCK
   lock(&jobmutex[home_machine]); // push
@@ -244,9 +244,14 @@ void push_job(int home_machine, job_type *job) {
   }
   int jobt = job->type_of_job;
   //int jobt = SELECT;
+#ifdef GLOBAL_QUEUE
   queue[home_machine][++(top[home_machine][jobt])][jobt] = job;
   max_q_length[home_machine][jobt] = 
     max(max_q_length[home_machine][jobt], top[home_machine][jobt]);
+#else
+  local_buffer[my_id][home_machine][++buffer_top[my_id][home_machine]] = job;
+#endif
+
 #ifdef LOCAL_LOCK
   unlock(&jobmutex[home_machine]); // push
 #else
@@ -268,6 +273,31 @@ void push_job(int home_machine, job_type *job) {
 #endif
   //  sort_queue(queue[home_machine], top[home_machine]);
   //  print_queue(queue[home_machine], top[home_machine]);
+}
+
+/*
+  scatter gather?
+*/
+void push_job_buffered(int home_machine, job_type *job) {
+  local_buffer[home_machine][++local_top[home_machine]] = job;
+  if 
+    or:  make more room in remote queue for all incoming jobs, allocate in chunks,  
+    give out space, for each machine, and let access be lockfree, until the end of the local space is reached
+but then the reading should smart and skip the gaps.
+
+   if we make sure all machines write at different places, and the reads too, then no locks are ever needed
+
+    such as always leave room betweebn the write index and the read index. 
+randomized?
+
+   a lock-free linked list where multiple producers can add items, and multiple consumers can take items
+
+the multiple consumers I solved with separate lists one for each consumers.
+now the mutliple producers should be solved with separate sub-lists for each of those separate consumer-lists.
+so consumers must traverse all sub-lists to find all their items
+can they do so lock-less?
+should we have a monotonically increasing index?
+
 }
 
 void check_consistency_empty() {
@@ -296,12 +326,42 @@ void check_job_consistency() {
 ** PULL JOB
 */
 
+// home_machine is the id of the home_machine of the node
 job_type *pull_job(int home_machine) {
   //  printf("M:%d Pull   ", home_machine);
+#ifdef GLOBAL_QUEUE
 #ifdef LOCAL_LOCK
   lock(&jobmutex[home_machine]);  // pull
 #else
   lock(&global_jobmutex);  // pull
+#endif
+#else
+  if (local_top[home_machine] > 0) {
+    job_type *job = local_queue[home_machine][local_top[home_machine]--];
+    return job;
+  } else {
+    // local queue is empty. get a refill from buffer
+    //    lock(&jobmutex[home_machine]);  // pull
+    lock(&global_jobmutex);  // pull
+    wrong! must acquire all locks, all local_locks that push is using. not the single global lock
+    //    no! lock all machines that we are gathering from. i.e., globally lock down the whole system!!!
+    for (m = 0; m < N_MACHINES; m++) {
+      lock(&jobmutex[m]);
+can we do this reading/copying without locking the remot e buffer?
+the whole idea was to do the locl buffering without locks.
+			   or, without frequent locks. they can be locked, but only for bulk operations.
+but the locks must prevent also individual jobs.
+damn.
+so the single jobs must also lock in the push... so they will be frequent...
+      // copy all buffers to local_queue
+      for (item = 0; item < buffer_top[m][home_machine]; item++) {
+	local_queue[home_machine][++local_top[home_machine]] = local_buffer[m][home_machine][item];
+      }
+      buffer_top[m][home_machine] = 0;
+
+    }
+unlock all local_locks
+return job. which job?
 #endif
   int jobt = BOUND_DOWN;
   // first try bound_down, then try update, then try select
@@ -317,7 +377,12 @@ job_type *pull_job(int home_machine) {
       }
       */
       //      assert(total_jobs >= 0);
+
+#ifdef GLOBAL_QUEUE
       job_type *job = queue[home_machine][top[home_machine][jobt]--][jobt];
+#else
+      job_type *job = local_queue[my_id][home_machine][local_top[my_id][home_machine]--];
+#endif
       if (empty_jobs(home_machine)) {
 	//	printf("M:%d will be empty. incr global_empty %d\n", home_machine, global_empty_machines);
 	global_empty_machines++;
@@ -421,14 +486,14 @@ void print_queue(job_type *q[], int t){
   }
 }
 
-void process_job(job_type *job) {
+void process_job(int my_id, job_type *job) {
   //  printf("Process job\n");
   if (job && job->node && live_node(job->node)) {
     switch (job->type_of_job) {
-    case SELECT:      do_select(job->node);  break;
-    case PLAYOUT:     do_playout(job->node); break;
-    case UPDATE:      do_update(job->node);  break;
-    case BOUND_DOWN:  do_bound_down(job->node);  break;
+    case SELECT:      do_select(my_id, job->node);  break;
+    case PLAYOUT:     do_playout(my_id, job->node); break;
+    case UPDATE:      do_update(my_id, job->node);  break;
+    case BOUND_DOWN:  do_bound_down(my_id, job->node);  break;
     otherwise: printf("ERROR: invalid job  type in q\n"); exit(0); break;
     }
   }

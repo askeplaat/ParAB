@@ -33,7 +33,8 @@ int unlock(pthread_mutex_t *mutex) {
   pthread_mutex_unlock(mutex);
 #endif
 }
-/*
+
+
 int lock_node(node_type *node) {
   if (node) {
     lock(&node->nodelock);  // node
@@ -67,7 +68,7 @@ int unlock_node(node_type *node) {
     }
   }
 }
-*/
+
 
 /************************
  *** NODE             ***
@@ -334,9 +335,9 @@ void print_q_stats() {
     sum_global_leaf_eval += global_leaf_eval[i];
     sum_global_updates += global_updates[i];
     sum_global_downward_aborts += global_downward_aborts[i];
-    printf("[%d,%d,%d,%d]\n", global_selects[i], global_leaf_eval[i], global_updates[i], global_downward_aborts[i]);
+    //    printf("[%d,%d,%d,%d]\n", global_selects[i], global_leaf_eval[i], global_updates[i], global_downward_aborts[i]);
     for (int j=1; j < JOB_TYPES; j++) {
-      printf("Max Q length %d [%d,%d]\n", max_q_length[i][j], i, j);
+      //      printf("Max Q length %d [%d,%d]\n", max_q_length[i][j], i, j);
     }
   }
 }
