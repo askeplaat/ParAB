@@ -25,7 +25,11 @@ int seq(node_type *node) {
   // this assumes jobs are distributed evenly over queues
   int machine = node->board;
   int depth = node->depth;  // if too far away from leaves then seq
+#ifdef GLOBAL_QUEUE
   return top[machine][SELECT] * 4 > N_JOBS || depth > SEQ_DEPTH;
+#else
+  return local_top[machine] * 4 > N_JOBS || depth > SEQ_DEPTH;
+#endif
 }
 
 
@@ -55,12 +59,17 @@ int empty(int top, int home) {
 }
 */
 int empty_jobs(int home) {
-
+#ifdef GLOBAL_QUEUE
   int x = top[home][SELECT] < 1 && 
     top[home][UPDATE] < 1 &&
     top[home][BOUND_DOWN] < 1 &&
     top[home][PLAYOUT] < 1;
-
+#else
+  int x = local_top[home] < 1 && 
+    local_top[home] < 1 &&
+    local_top[home] < 1 &&
+    local_top[home] < 1;
+#endif
   return x;
 }
 
@@ -130,32 +139,11 @@ void do_work_queue(int i) {
 
   while (safety_counter-- > 0 && !global_done && live_node(root)) { 
     job_type *job = NULL;
-    /*
 
-
-while live(root) {
-  if me==rootmachine && global_empty() then { push select root }
-  else job = pullme) *pull may block*; process(job) *which includes pushes of new jobs*;
-}
-pull(){
-if empty(me) then { global_empty++; return null or condwait}
-do {orgtop = top; top--; x=job(top);} while (orgtop-1!=top); return x;
-}
-empty()=return top==0;
-push(x){
-if full(me) then { return null;}
-do {job(orgtop)=orgjob; orgtop=top; orgjob=job(top); top++; job(top)=x;} while (orgtop+1!=top);
-
-so push & pull have machine-local locks
-empty is an atomic word operation. axually, can be inside de push/pull critical section
-global_empty also (decrement)
-
-    */
-
-    //    printf("global empty machines: %d\n", global_empty_machines);
-
+    printf("globalempty machines: %d\n", global_empty_machines);
     if (i == root->board && global_empty_machines >= N_MACHINES) {
-      add_to_queue(new_job(root, SELECT)); 
+      printf("* globalempty machines: %d\n", global_empty_machines);
+      add_to_queue(i, new_job(root, SELECT)); 
     }
 
     job = pull_job(i);
@@ -166,7 +154,12 @@ global_empty also (decrement)
       process_job(i, job);
       //            unlock(&treemutex); 
       //      unlock_node(job->node);
-    }     
+    } else {
+      // pull returned null, queue must be empty. ask a random machine to flush their buffer
+      int steal_target = (i+1)%N_MACHINES;
+      //      printf("STEAL target: %d\n", steal_target);
+      flush_buffer(steal_target, i);
+    } 
     /*
     lock(&global_jobmutex); // check
     check_consistency_empty();
@@ -189,13 +182,15 @@ global_empty also (decrement)
   printf("M:%d. Finished. Queue is empty or root is solved. jobs: %d. root: <%d:%d> \n", i, total_jobs, root->a, root->b);
 }
 
-void schedule(node_type *node, int t) {
+
+
+void schedule(int my_id, node_type *node, int t) {
   if (node) {
     // send to remote machine
     int home_machine = node->board;
 
     int was_empty = empty_jobs(home_machine);  
-    add_to_queue(new_job(node, t));
+    add_to_queue(my_id, new_job(node, t));
     /*
     if (was_empty) {
       //      printf("Signalling machine %d for path %d type:[%d]. in wait: %d\n", home_machine, node->path, t, global_in_wait);
@@ -214,12 +209,12 @@ void add_to_queue(int my_id, job_type *job) {
     printf("ERROR: home_machine %d too big\n", home_machine);
     exit(1);
   }
- 
+  /*
   if (top[home_machine][jobt] >= N_JOBS) {
     printf("M%d Top:%d ERROR: queue [%d] full\n", home_machine, top[home_machine][jobt], jobt);
     exit(1);
   }
-
+  */
   push_job(my_id, home_machine, job);
 }
 
@@ -256,63 +251,60 @@ void push_job(int my_id, int home_machine, job_type *job) {
 
   // check if local buffer is full, then need to flush to main work queue, which is remote on another machine
   if (buffer_top[my_id][home_machine] > BUFFER_SIZE) {
-
-    // local buffer is full. flush to the remote machine and insert in the queue. lock the remote machine queue
-    lock(&jobmutex[home_machine]);
-    for (item = 0; item < buffer_top[my_id][home_machine]; item++) {
-
-      // insert the items on top of the current top, append at the end
-      local_queue[home_machine][++buffer_top[home_machine]] = local_buffer[my_id][home_machine][item];
-    }
-    unlock(&jobmutex[home_machine]);
+    flush_buffer(my_id, home_machine);
+  }
 #endif
-
+  
 #ifdef LOCAL_LOCK
   unlock(&jobmutex[home_machine]); // push
 #else
   unlock(&global_jobmutex); // push
 #endif
 
-#undef PRINT_PUSHES
+#define PRINT_PUSHES
 #ifdef PRINT_PUSHES
   if (seq(job->node)) {
     //        printf("ERROR: pushing job while in seq mode ");
   }
   assert(home_machine == job->node->board);
 
-  printf("    M:%d P:%d %s TOP[%d]:%d PUSH  [%d] <%d:%d> jobs: %d\n", 
+  printf("    M:%d P:%d %s TOP[%d] PUSH  [%d] <%d:%d> total_jobs: %d\n", 
 	 job->node->board, job->node->path, 
  	 job->node->maxormin==MAXNODE?"+":"-", 
-	 job->node->board, top[job->node->board][jobt], job->type_of_job,
+	 job->node->board, job->type_of_job,
 	 job->node->a, job->node->b, total_jobs);
 #endif
   //  sort_queue(queue[home_machine], top[home_machine]);
   //  print_queue(queue[home_machine], top[home_machine]);
 }
 
-/*
-  scatter gather?
-*/
-void push_job_buffered(int home_machine, job_type *job) {
-  local_buffer[home_machine][++local_top[home_machine]] = job;
-  if 
-    or:  make more room in remote queue for all incoming jobs, allocate in chunks,  
-    give out space, for each machine, and let access be lockfree, until the end of the local space is reached
-but then the reading should smart and skip the gaps.
 
-   if we make sure all machines write at different places, and the reads too, then no locks are ever needed
+void flush_buffer(int my_id, int home_machine) {
+      // local buffer is full. flush to the remote machine and insert in the queue. lock the remote machine queue
+    lock(&jobmutex[home_machine]);
+    int item = 0;
+    for (item = 1; item <= buffer_top[my_id][home_machine]; item++) {
 
-    such as always leave room betweebn the write index and the read index. 
-randomized?
-
-   a lock-free linked list where multiple producers can add items, and multiple consumers can take items
-
-the multiple consumers I solved with separate lists one for each consumers.
-now the mutliple producers should be solved with separate sub-lists for each of those separate consumer-lists.
-so consumers must traverse all sub-lists to find all their items
-can they do so lock-less?
-should we have a monotonically increasing index?
-
+      // insert the items on top of the current top, append at the end
+      job_type *job = local_buffer[my_id][home_machine][item];
+      local_queue[home_machine][++local_top[home_machine]] = job;
+      //      first buffer-top index value is 1 (0 is not used) but for loop with item is 0..buffer_top non-inclusive. going one too low
+#undef PRINT_FLUSH
+#ifdef PRINT_FLUSH
+      if (job) {
+	printf("    M:%d P:%d %s TOP[%d]FLUSHING  [%d] <%d:%d> total_jobs: %d\n", 
+	     job->node->board, job->node->path, 
+	     job->node->maxormin==MAXNODE?"+":"-", 
+	     job->node->board, job->type_of_job,
+	     job->node->a, job->node->b, total_jobs);
+      } else {
+	printf("Job is null in FLUSH\n");
+      }
+#endif
+    }
+    //    printf("flushed %d jobs. local_top: %d\n", item-1, local_top[home_machine]);
+    buffer_top[my_id][home_machine] = 0;
+    unlock(&jobmutex[home_machine]);
 }
 
 void check_consistency_empty() {
@@ -327,6 +319,7 @@ void check_consistency_empty() {
 }
 
 void check_job_consistency() {
+  /*
   int j = 0;
   for (int i = 0; i < N_MACHINES; i++) {
     j += top[i][SELECT] + top[i][UPDATE] + top[i][BOUND_DOWN] + top[i][PLAYOUT];
@@ -335,6 +328,7 @@ void check_job_consistency() {
     printf("ERROR Inconsistency total_jobs =/= j %d %d\n", total_jobs, j);
     exit(0);
   }
+  */
 }
 
 /*
@@ -344,44 +338,52 @@ void check_job_consistency() {
 // home_machine is the id of the home_machine of the node
 job_type *pull_job(int home_machine) {
   //  printf("M:%d Pull   ", home_machine);
-#ifdef GLOBAL_QUEUE
-#ifdef LOCAL_LOCK
+
+  //#ifdef LOCAL_LOCK
   lock(&jobmutex[home_machine]);  // pull
-#else
-  lock(&global_jobmutex);  // pull
-#endif
-#else
+  //#else
+  //  lock(&global_jobmutex);  // pull
+  //#endif
+  //#ifdef GLOBAL_QUEUE
+  //#else
+  // no locks, not ever. this cannot be right. it must be protected from a push flush
   if (local_top[home_machine] > 0) {
+    //    how can pull know if there are jobs remotely that can be gotten througha forceed remote flush, and versus just waiting for the jobs to accumulate and be flushed to us automatically?
+    // hwo can we solve the startup problem? the machine must be allowed to run as a small machine in order to grow bigger
     job_type *job = local_queue[home_machine][local_top[home_machine]--];
+    if (empty_jobs(home_machine)) {
+	//	printf("M:%d will be empty. incr global_empty %d\n", home_machine, global_empty_machines);
+	global_empty_machines++;
+    }
+#undef PRINT_PULLS
+#ifdef PRINT_PULLS
+    if (job) {
+      printf("    M:%d P:%d %s TOP[%d]PULL  [%d] <%d:%d> jobs: %d\n", 
+	     job->node->board, job->node->path, 
+	     job->node->maxormin==MAXNODE?"+":"-", 
+	     job->node->board, job->type_of_job,
+	     job->node->a, job->node->b, total_jobs);
+    } else {
+      printf("  M:%d  PULL: job is null. local_top: %d\n", home_machine, local_top[home_machine]);
+    }
+#endif
+    unlock(&jobmutex[home_machine]);  // pull
     return job;
   } else {
-    // local queue is empty. get a refill from buffer
-    //    lock(&jobmutex[home_machine]);  // pull
-    lock(&global_jobmutex);  // pull
-    wrong! must acquire all locks, all local_locks that push is using. not the single global lock
-    //    no! lock all machines that we are gathering from. i.e., globally lock down the whole system!!!
-    for (m = 0; m < N_MACHINES; m++) {
-      lock(&jobmutex[m]);
-can we do this reading/copying without locking the remot e buffer?
-the whole idea was to do the locl buffering without locks.
-			   or, without frequent locks. they can be locked, but only for bulk operations.
-but the locks must prevent also individual jobs.
-damn.
-so the single jobs must also lock in the push... so they will be frequent...
-      // copy all buffers to local_queue
-      for (item = 0; item < buffer_top[m][home_machine]; item++) {
-	local_queue[home_machine][++local_top[home_machine]] = local_buffer[m][home_machine][item];
-      }
-      buffer_top[m][home_machine] = 0;
-
-    }
-unlock all local_locks
-return job. which job?
-#endif
+    // local queue is empty. wait for the buffer to give me a refill 
+    unlock(&jobmutex[home_machine]);  // pull
+    return NULL;
+  }
+  exit(99); // should never reach
+  //#endif
   int jobt = BOUND_DOWN;
   // first try bound_down, then try update, then try select
   while (jobt > 0) {
+#ifdef GLOBAL_QUEUE
     if (top[home_machine][jobt] > 0) {
+#else
+    if (local_top[home_machine] > 0) {
+#endif
       total_jobs--;
       /*
       if (no_more_jobs_in_system(home_machine)) {
@@ -396,21 +398,13 @@ return job. which job?
 #ifdef GLOBAL_QUEUE
       job_type *job = queue[home_machine][top[home_machine][jobt]--][jobt];
 #else
-      job_type *job = local_queue[my_id][home_machine][local_top[my_id][home_machine]--];
+      job_type *job = local_queue[home_machine][local_top[home_machine]--];
 #endif
       if (empty_jobs(home_machine)) {
 	//	printf("M:%d will be empty. incr global_empty %d\n", home_machine, global_empty_machines);
 	global_empty_machines++;
       }
       //      check_job_consistency();
-#undef PRINT_PULLS
-#ifdef PRINT_PULLS
-      printf("    M:%d P:%d %s TOP[%d]:%d PULL  [%d] <%d:%d> jobs: %d\n", 
-	     job->node->board, job->node->path, 
-	     job->node->maxormin==MAXNODE?"+":"-", 
-	     job->node->board, top[job->node->board][jobt], job->type_of_job,
-	     job->node->a, job->node->b, total_jobs);
-#endif
 #ifdef LOCAL_LOCK
       unlock(&jobmutex[home_machine]);  // pull
 #else
@@ -478,8 +472,13 @@ int update_selects_with_bound(node_type *node) {
   int home_machine = node->board;
   int continue_update = 0;
   // find all the entries for this node in the job queue
+#ifdef GLOBAL_QUEUE
   for (int i = 0; i < top[home_machine][SELECT]; i++) {
     job_type *job = queue[home_machine][i][SELECT];
+#else
+  for (int i = 0; i < local_top[home_machine]; i++) {
+    job_type *job = local_queue[home_machine][i];
+#endif
     if (job->node == node && job->type_of_job == SELECT) {
       //      since node == node I do not really have to update the bounds, they are already updated....
       continue_update |= job->node->a < node->a;

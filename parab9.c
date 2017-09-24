@@ -63,8 +63,15 @@
 
  
 node_type *root = NULL;
+#ifdef GLOBAL_QUEUE
 job_type *queue[N_MACHINES][N_JOBS][JOB_TYPES];
 int top[N_MACHINES][JOB_TYPES];
+#else
+job_type *local_queue[N_MACHINES][N_JOBS];
+int local_top[N_MACHINES];
+job_type *local_buffer[N_MACHINES][N_MACHINES][BUFFER_SIZE];
+int buffer_top[N_MACHINES][N_MACHINES];
+#endif
 int total_jobs = 0;
 pthread_mutex_t jobmutex[N_MACHINES];
 pthread_mutex_t global_jobmutex = PTHREAD_MUTEX_INITIALIZER;
@@ -102,7 +109,7 @@ int global_unorderedness_seq_n[TREE_DEPTH];
 // traverse to the left most deepest open node or leaf node
 // but only one node at a time, since each node has its own home machine
 // precondition: my bounds 
-void do_select(node_type *node) {
+void do_select(int my_id, node_type *node) {
   global_selects[node->board]++;
   if (node && live_node(node)) {
 
@@ -119,7 +126,7 @@ void do_select(node_type *node) {
     */
     if (leaf_node(node) && live_node(node)) { // depth == 0; frontier, do playout/eval
       //      printf("M:%d PLAYOUT\n", node->board);
-      schedule(node, PLAYOUT);
+      schedule(my_id, node, PLAYOUT);
     } else if (live_node(node)) {
       //      printf("M:%d LIVE: FLC\n", node->board);
       node_type *flc = first_live_child(node, 1);
@@ -133,7 +140,7 @@ void do_select(node_type *node) {
 	// parallelism too much
 	//	printf("FLC: Scheduling one child p:%d <%d:%d>\n", 
 	//	       flc->path, flc->a, flc->b);
-	schedule(flc, SELECT); 
+	schedule(my_id, flc, SELECT); 
 	// first live child finds a live child or does and expand creating a new child
       } else {
 
@@ -160,7 +167,7 @@ void do_select(node_type *node) {
 	  if (child && !seq(child)) {
 	    //	    printf("child: P:%d\n", child->path);
 	    //dit klopt nog niet. het moet niet meer kinderen parallel schedulen dan suo aangeeft: het aantal dat sequentieel gedaan zou zijn.
-	    schedule(child, SELECT); 
+	    schedule(my_id, child, SELECT); 
 	  } 
 	}
       }
@@ -180,7 +187,7 @@ void do_select(node_type *node) {
 #ifdef UPDATE_AFTER_CUTOFF
       if (node->parent) {
 	set_best_child(node);
-	schedule(node->parent, UPDATE);
+	schedule(my_id, node->parent, UPDATE);
       }
 #endif
     } else {
@@ -299,7 +306,7 @@ node_type * first_live_child(node_type *node, int p) {
  ******************************/
 
 // just std ab evaluation. no mcts playout
-void do_playout(node_type *node) {
+void do_playout(int my_id, node_type *node) {
   node->a = node->b = node->lb = node->ub = evaluate(node);
   /*
   printf("M%d P%d: PLAYOUT d:%d    A:%d\n", 
@@ -311,7 +318,7 @@ void do_playout(node_type *node) {
   if (node->parent) {
     set_best_child(node);
     //    node->parent->best_child = node;
-    schedule(node->parent, UPDATE);
+    schedule(my_id, node->parent, UPDATE);
   }
 }
 
@@ -327,7 +334,7 @@ int evaluate(node_type *node) {
  *****************************/
 
 // backup through the tree
-void do_update(node_type *node) {
+void do_update(int my_id, node_type *node) {
   //  printf("%d UPDATE\n", node->path);
 
   if (node && node->best_child) {
@@ -375,14 +382,14 @@ void do_update(node_type *node) {
     
     if (continue_updating) {
       // schedule downward update to parallel searches
-      downward_update_children(node);
+      downward_update_children(my_id, node);
       // schedule upward update
       if (node->parent) {
 	//	if (node->parent->best_child) {
 	set_best_child(node);
 	//	} 
 	//	printf("%d schedule update %d\n", node->path, node->parent->path);
-	schedule(node->parent, UPDATE);
+	schedule(my_id, node->parent, UPDATE);
       }
     } else {
       // keep going, no longer autmatic select of root. select of this node
@@ -393,7 +400,7 @@ void do_update(node_type *node) {
 
 // in a parallel search when a bound is updated it must be propagated to other
 // subtrees that may be searched in parallel
-void downward_update_children(node_type *node) {
+void downward_update_children(int my_id, node_type *node) {
   //  return;
   if (node) {
     for (int ch = 0; ch < node->n_children && node->children[ch]; ch++) {
@@ -409,7 +416,7 @@ void downward_update_children(node_type *node) {
       continue_update |= child->b > node->b;
       child->b = min(child->b, node->b);
       if (continue_update) {
-	schedule(child, BOUND_DOWN);
+	schedule(my_id, child, BOUND_DOWN);
 	if (was_live && dead_node(child)) {
 	  //	  	  printf("DOWN: %d <%d:%d>\n", child->path, child->a, child->b);
       	  global_downward_aborts[node->board]++;
@@ -421,10 +428,10 @@ void downward_update_children(node_type *node) {
 }
 
 // process new bound, update my job queue for selects with this node and then propagate down
-void do_bound_down(node_type *node) {
+void do_bound_down(int my_id, node_type *node) {
   if (node) {
     if (update_selects_with_bound(node)) {
-      downward_update_children(node);
+      downward_update_children(my_id, node);
     }
   }
 }

@@ -268,8 +268,16 @@ int main(int argc, char *argv[]) {
     global_leaf_eval[i] = 0;
     global_updates[i] = 0;
     global_downward_aborts[i] = 0;
+#ifdef GLOBAL_QUEUE
+#else
+      local_top[i] = 0;
+#endif
     for (int j = 1; j < JOB_TYPES; j++) {
+#ifdef GLOBAL_QUEUE
       top[i][j] = 0;
+#else
+      buffer_top[i][j] = 0;
+#endif
       max_q_length[i][j] = 0;
     }
     pthread_mutex_init(&jobmutex[i], NULL);
@@ -341,7 +349,7 @@ void print_q_stats() {
     }
   }
 }
-
+/*
 void print_queues() {
   printf("********* %d ********\n", total_jobs);
   for (int i=0; i < N_MACHINES; i++) {
@@ -359,7 +367,7 @@ void print_queues() {
   }
   printf("%%%%%%%%%%%%%%%%\n", total_jobs);
 }
-
+*/
 
 // simple, new leaf is initialized with a wide window
 int start_alphabeta(int a, int b) {
@@ -368,7 +376,8 @@ int start_alphabeta(int a, int b) {
   }
   root->wa = a; // store bounds in passed-down window alpha/beta
   root->wb = b;
-  schedule(root, SELECT);
+  schedule(root->board, root, SELECT);
+  flush_buffer(root->board, root->board);
   start_processes(N_MACHINES);
   return root->ub >= b ? root->lb : root->ub;
   // dit moet een return value zijn buiten het window. fail soft ab

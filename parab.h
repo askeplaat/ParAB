@@ -11,14 +11,15 @@
  * defines
  */
 
-#define N_MACHINES 10
-#define TREE_WIDTH 7
-#define TREE_DEPTH 7
+#define N_MACHINES 1
+#define TREE_WIDTH 3
+#define TREE_DEPTH 3
 
 #define SEQ_DEPTH 4
  
 
-#define N_JOBS 500000  // 100 jobs in job queue
+#define N_JOBS 500000  
+#define BUFFER_SIZE 100
 
 #define INFTY  99999
 
@@ -43,8 +44,8 @@
 #define LOCKS
 #undef LOCAL_Q 
 
-#define lOCAL_LOCK
-
+#define LOCAL_LOCK
+#undef GLOBAL_QUEUE
 
 
 /*
@@ -88,8 +89,10 @@ extern int global_empty_machines;
 extern job_type *queue[N_MACHINES][N_JOBS][JOB_TYPES];
 extern int top[N_MACHINES][JOB_TYPES];
 #else
-extern job_type *local_queue[N_MMACHINES][N_MACHINES][N_JOBS];
-extern int local_top[N_MACHINES][N_MACHINES];
+extern job_type *local_queue[N_MACHINES][N_JOBS];
+extern int local_top[N_MACHINES];
+extern job_type *local_buffer[N_MACHINES][N_MACHINES][BUFFER_SIZE];
+extern int buffer_top[N_MACHINES][N_MACHINES];
 #endif
 extern int total_jobs;
 extern pthread_mutex_t jobmutex[N_MACHINES];
@@ -167,14 +170,15 @@ int empty(int top, int home);
 int not_empty(int top, int home);
 void add_to_queue(int my_id, job_type *job);
 void process_job(int my_id, job_type *job);
-void schedule(node_type *node, int t);
+void schedule(int my_id, node_type *node, int t);
 void do_select(int my_id, node_type *node);
 node_type * first_live_child(node_type *node, int p);
 void do_playout(int my_id, node_type *node);
 int evaluate(node_type *node);
 void do_update(int my_id, node_type *node);
 void do_bound_down(int my_id, node_type *node);
-void downward_update_children(node_type *node);
+void downward_update_children(int my_id, node_type *node);
 void store_node(node_type *node); 
 void update_bounds_down(node_type *node, int a, int b);
 void check_consistency_empty();
+void flush_buffer(int my_id, int home_machine);
